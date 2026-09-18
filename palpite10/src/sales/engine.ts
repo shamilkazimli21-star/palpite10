@@ -284,7 +284,7 @@ export async function handleStart(from: TelegramUser, chatId: number, token: str
   if (firstStart) {
     await assignExperiments(lead.id);
     await recordEvent(lead.id, "TELEGRAM_STARTED", { campaign: lead.campaign, ad: lead.ad });
-    await sendMetaEvent({ ...META_EVENTS.botStarted, eventId: `contact_${lead.id}`, lead });
+    await sendMetaEvent({ ...META_EVENTS.botStarted, eventId: `lead_${lead.id}`, lead, contentName: "telegram_bot_started" });
   }
   await recordMessage(lead.id, "event", firstStart ? "A pessoa abriu o bot pela primeira vez (/start)." : "A pessoa enviou /start de novo.");
 
@@ -339,7 +339,7 @@ export async function handleFreeChannelJoined(lead: Lead, via: "button" | "auto"
   await setSystemSignal(lead.id, "joined_free_channel", `Membership verified by Telegram (${via}).`);
   await recordEvent(lead.id, "FREE_JOIN_VERIFIED", { via });
   await recordMessage(lead.id, "event", "O Telegram confirmou: a pessoa entrou no canal gratuito.");
-  await sendMetaEvent({ ...META_EVENTS.freeJoined, eventId: `freejoin_${lead.id}`, lead });
+  await sendMetaEvent({ ...META_EVENTS.freeJoined, eventId: `registration_${lead.id}`, lead, contentName: "free_channel", customData: { status: true } });
 
   if (!lead.chat_id || lead.blocked || lead.opted_out) return;
   await runTurn(lead.id, {

@@ -911,6 +911,8 @@ function System() {
         {ok(d.flags.whopApiKey, "Whop API anahtarı var: her ödeme doğru kişiye otomatik bağlanır.", "Whop API anahtarı yok: ödemeler tahmini eşleştirilir.")}
         {ok(d.flags.vipChannelId, "VIP kanalı bağlı: tek kullanımlık davet + abonelik bitince otomatik çıkarma.", "TELEGRAM_VIP_CHANNEL_ID yok.")}
         {ok(d.flags.meta, d.flags.metaTestMode ? "Meta bağlı — DİKKAT: test modu açık (META_TEST_EVENT_CODE). Gerçek reklamdan önce silin." : "Meta Pixel + Conversions API bağlı.", "Meta bağlı değil: reklamlar satışları göremez.")}
+        {d.lastMetaError && <p style={{ marginBottom: 6 }}>⚠️ Meta son olayı reddetti ({d.lastMetaError.event} · {when(d.lastMetaError.at)}): <span className="a-help">{d.lastMetaError.detail}</span></p>}
+        {d.flags.meta && <p className="a-help" style={{ marginBottom: 6 }}>Meta'ya giden olaylar: Contact (sitede butona basıldı) → Lead (botu başlattı) → CompleteRegistration (ücretsiz kanala girdi, doğrulandı) → InitiateCheckout (ödeme sayfası) → Purchase (ödeme onaylandı, tutar ile).</p>}
         {ok(d.flags.adminChat, "Telegram yönetici bildirimleri açık.", "TELEGRAM_ADMIN_CHAT_ID yok: satış bildirimi alamazsınız.")}
         {ok(d.flags.support, "Destek kişisi tanımlı.", "SUPPORT_USERNAME yok.")}
         {ok(d.flags.ownPassword, "Panel için ayrı şifre (ADMIN_PASSWORD) tanımlı.", "Panel şu an SETUP_SECRET ile açılıyor. Vercel'e ADMIN_PASSWORD ekleyip yeniden yayınlarsanız ayrı bir şifreniz olur.")}

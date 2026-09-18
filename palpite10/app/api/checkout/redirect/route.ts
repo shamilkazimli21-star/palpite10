@@ -88,7 +88,18 @@ export async function GET(request: NextRequest) {
   }
 
   const first = !lead.checkout_started;
+  // The plan button opens in a real browser on our domain: fill in any matching data we do not have yet.
+  const seen = {
+    user_agent: lead.user_agent ?? request.headers.get("user-agent")?.slice(0, 400) ?? null,
+    client_ip: lead.client_ip ?? (ip === "unknown" ? null : ip),
+    meta_fbp: lead.meta_fbp ?? request.cookies.get("_fbp")?.value ?? null,
+    meta_fbc: lead.meta_fbc ?? request.cookies.get("_fbc")?.value ?? null,
+    visitor_id: lead.visitor_id ?? request.cookies.get("p10_vid")?.value ?? null,
+    landing_url: lead.landing_url ?? getEnv().APP_URL,
+  };
+  Object.assign(lead, seen);
   await updateLead(lead.id, {
+    ...seen,
     checkout_started: true,
     checkout_started_at: new Date().toISOString(),
     last_checkout_plan: plan.key,

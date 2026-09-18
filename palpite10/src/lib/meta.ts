@@ -26,6 +26,9 @@ function buildFbc(lead: MetaEventInput["lead"]): string | undefined {
   return `fb.1.${new Date(lead.created_at).getTime()}.${lead.fbclid}`;
 }
 
+/** Last rejection by Meta on this server instance (shown in the admin panel → Sistem). */
+export let lastMetaError: { at: string; event: string; detail: string } | null = null;
+
 /**
  * Never throws: analytics must not be able to break a sale.
  */
@@ -45,14 +48,18 @@ export async function sendMetaEvent(input: MetaEventInput): Promise<boolean> {
     if (input.lead.user_agent) userData.client_user_agent = input.lead.user_agent;
     if (input.email) userData.em = [sha256(input.email.trim().toLowerCase())];
 
+    // Meta REJECTS a "website" event that has no browser user agent. A person who opened the bot
+    // directly (never saw the landing page) has none → report the event as "chat" instead of losing it.
+    const actionSource = input.actionSource === "website" && !input.lead.user_agent ? "chat" : input.actionSource;
+
     const event: Record<string, unknown> = {
       event_name: input.name,
       event_time: Math.floor(Date.now() / 1000),
       event_id: input.eventId,
-      action_source: input.actionSource,
+      action_source: actionSource,
       user_data: userData,
     };
-    if (input.actionSource === "website") {
+    if (actionSource === "website") {
       event.event_source_url = input.lead.landing_url ?? env.APP_URL;
     }
 
@@ -86,7 +93,9 @@ export async function sendMetaEvent(input: MetaEventInput): Promise<boolean> {
         },
       );
       if (!response.ok) {
-        console.error("[meta]", input.name, response.status, (await response.text()).slice(0, 300));
+        const detail = (await response.text()).slice(0, 400);
+        console.error("[meta]", input.name, response.status, detail);
+        lastMetaError = { at: new Date().toISOString(), event: input.name, detail: `${response.status} ${detail}` };
         return false;
       }
       return true;

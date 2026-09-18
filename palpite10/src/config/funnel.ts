@@ -262,14 +262,24 @@ export type ExperimentMetric = "reply" | "free_join" | "vip_offer" | "checkout" 
 /* ------------------------------------------------------------------ */
 
 /**
- * action_source per Meta's spec:
- *  - "website": happened on your site (needs URL + user agent, which we store).
- *  - "chat":    happened inside a messaging conversation (Telegram).
+ * What Meta receives, in funnel order:
+ *   Contact               — tapped "Abrir no Telegram" on the landing page (browser pixel + server, de-duplicated)
+ *   Lead                  — started the bot                                  (server)
+ *   CompleteRegistration  — joined the free channel, verified by Telegram   (server)
+ *   VipOfferShown         — custom event, first time the plans are shown     (server)
+ *   InitiateCheckout      — opened a Whop checkout                           (server)
+ *   Purchase              — Whop confirmed the first payment                 (server, with value + currency)
+ *
+ * action_source must be truthful (Meta's terms):
+ *  - "website": happened on a web page (needs URL + browser user agent, which we store from the landing page).
+ *  - "chat":    happened inside the Telegram conversation.
+ * The click identifiers captured on the landing page (fbc / fbp / IP / user agent / external_id) are sent
+ * with EVERY event, which is what lets Meta attribute a Telegram event back to the ad.
  */
 export const META_EVENTS = {
-  ctaClick: { name: "Lead", actionSource: "website" },
-  botStarted: { name: "Contact", actionSource: "chat" },
-  freeJoined: { name: "FreeChannelJoined", actionSource: "chat" },
+  ctaClick: { name: "Contact", actionSource: "website" },
+  botStarted: { name: "Lead", actionSource: "chat" },
+  freeJoined: { name: "CompleteRegistration", actionSource: "chat" },
   vipOfferShown: { name: "VipOfferShown", actionSource: "chat" },
   checkoutStarted: { name: "InitiateCheckout", actionSource: "website" },
   purchase: { name: "Purchase", actionSource: "website" },

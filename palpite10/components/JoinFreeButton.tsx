@@ -37,8 +37,8 @@ export default function JoinFreeButton({ label = "Abrir no Telegram", variant = 
       });
       const data = (await response.json()) as { telegramUrl?: string; eventId?: string | null };
       if (!data.telegramUrl) throw new Error("no url");
-      // Same event id as the server-side event → Meta counts ONE lead, not two.
-      if (data.eventId && window.fbq) window.fbq("track", "Lead", { content_name: "free_channel" }, { eventID: data.eventId });
+      // Same event id as the server-side event → Meta counts ONE click, not two. ("Lead" is sent by the server when the person actually starts the bot.)
+      if (data.eventId && window.fbq) window.fbq("track", "Contact", { content_name: "telegram_cta" }, { eventID: data.eventId });
       window.setTimeout(() => {
         window.location.href = data.telegramUrl!;
         window.setTimeout(() => setBusy(false), 2500);

@@ -53,9 +53,9 @@ export async function POST(request: NextRequest) {
     if (!lead) {
       lead = await createLead({ ...body, clientIp: ip, userAgent });
       await recordEvent(lead.id, "LANDING_CTA_CLICKED", { campaign: lead.campaign, ad: lead.ad });
-      await sendMetaEvent({ ...META_EVENTS.ctaClick, eventId: `lead_${lead.id}`, lead });
+      await sendMetaEvent({ ...META_EVENTS.ctaClick, eventId: `click_${lead.id}`, lead });
     }
-    return NextResponse.json({ telegramUrl: botUrl(lead.start_token), eventId: `lead_${lead.id}` });
+    return NextResponse.json({ telegramUrl: botUrl(lead.start_token), eventId: `click_${lead.id}` });
   } catch (error) {
     // The database being down must never stop someone from reaching the bot.
     console.error("[lead/start]", error);
@@ -82,7 +82,7 @@ export async function GET(request: NextRequest) {
       landingUrl: request.headers.get("referer"),
     });
     await recordEvent(lead.id, "LANDING_CTA_CLICKED", { nojs: true });
-    await sendMetaEvent({ ...META_EVENTS.ctaClick, eventId: `lead_${lead.id}`, lead });
+    await sendMetaEvent({ ...META_EVENTS.ctaClick, eventId: `click_${lead.id}`, lead });
     return NextResponse.redirect(botUrl(lead.start_token), 302);
   } catch (error) {
     console.error("[lead/start GET]", error);

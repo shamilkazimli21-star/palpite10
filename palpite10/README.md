@@ -4,7 +4,7 @@ Meta Ad → landing page → Telegram bot (AI salesperson, pt-BR) → free chann
 
 ```
 Meta Ad ─► Landing (/) ─► /api/lead/start ─► t.me/bot?start=<token>
-                                   │ Lead (Pixel + CAPI, same event id)
+                                   │ Contact (Pixel + CAPI, same event id) → Lead when the bot is started
 Telegram ─► /api/telegram/webhook ─► sales engine (DeepSeek proposes, backend decides)
              ├─ free channel invite ─► join verified by Telegram (button or automatic)
              ├─ VIP offer ─► /api/checkout/redirect ─► Whop checkout (lead id in metadata)
@@ -28,7 +28,7 @@ Cron ─► /api/cron/followups (daily)   /api/cron/learning (daily: analyse →
    - If you also installed Whop's own Telegram app for the VIP channel, remove it or let it be the only one managing access — two systems kicking/inviting the same people conflict.
 5. **Vercel** – import the repo, paste every variable from `.env.example` **before** the first deploy, deploy. After changing any variable: Deployments → Redeploy.
 6. **Connect Telegram** – open `https://YOUR-DOMAIN/api/setup/telegram?secret=YOUR_SETUP_SECRET`. It registers the webhook and returns a checklist (database, bot admin rights in both channels, Whop plans, Meta, support contact). Fix anything listed in `needs_attention` and open it again.
-7. **Meta** – set `META_TEST_EVENT_CODE`, redeploy, click through the funnel, watch Events Manager → Test events (`Lead`, `Contact`, `FreeChannelJoined`, `VipOfferShown`, `InitiateCheckout`, `Purchase`). Then delete the test code and redeploy. Ad URL parameters: `utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_term={{adset.name}}&utm_content={{ad.name}}`.
+7. **Meta** – set `META_TEST_EVENT_CODE`, redeploy, click through the funnel, watch Events Manager → Test events (`Contact` = tapped the button on the site, `Lead` = started the bot, `CompleteRegistration` = joined the free channel (verified), `VipOfferShown`, `InitiateCheckout`, `Purchase` with value). Then delete the test code and redeploy. Ad URL parameters: `utm_source=meta&utm_medium=paid&utm_campaign={{campaign.name}}&utm_term={{adset.name}}&utm_content={{ad.name}}`.
 8. **Test a purchase** end to end with a real card on the weekly plan, then refund it in Whop — the bot must deliver the VIP link, and remove access after the refund.
 
 `/api/health?secret=SETUP_SECRET` tells you which variable is wrong (names only, never values).

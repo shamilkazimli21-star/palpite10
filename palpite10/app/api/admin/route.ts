@@ -6,6 +6,7 @@ import { envProblems, getEnv, type Env } from "@/src/lib/env";
 import { deepseekJson } from "@/src/lib/deepseek";
 import { getLeadById, getLeadByTelegramId, recordEvent, recordMessage, updateLead, type Lead, type StoredMessage } from "@/src/lib/leads";
 import { allowRequest } from "@/src/lib/rate-limit";
+import { lastMetaError } from "@/src/lib/meta";
 import { loadSettings, resetSection, saveSection, SettingsError, settingsView, type SettingsSection } from "@/src/lib/settings";
 import { db } from "@/src/lib/supabase";
 import { registerWebhook, sendText, tg } from "@/src/lib/telegram";
@@ -280,7 +281,7 @@ async function handle(action: string, body: any): Promise<unknown> {
         rows(db().from("telegram_updates").select("update_id, error, attempts, created_at").eq("status", "failed").order("created_at", { ascending: false }).limit(10)),
       ]);
       return {
-        envProblems: envProblems(), webhook, failedWhop, failedTelegram, appUrl: env.APP_URL, model: env.DEEPSEEK_MODEL,
+        envProblems: envProblems(), lastMetaError, webhook, failedWhop, failedTelegram, appUrl: env.APP_URL, model: env.DEEPSEEK_MODEL,
         flags: { meta: Boolean(env.META_PIXEL_ID && env.META_ACCESS_TOKEN), metaTestMode: Boolean(env.META_TEST_EVENT_CODE), whopApiKey: Boolean(env.WHOP_API_KEY), vipChannelId: Boolean(env.TELEGRAM_VIP_CHANNEL_ID), adminChat: Boolean(env.TELEGRAM_ADMIN_CHAT_ID), support: Boolean(env.SUPPORT_USERNAME || env.SUPPORT_URL), ownPassword: Boolean(process.env.ADMIN_PASSWORD?.trim()), autoApprove: env.PLAYBOOK_AUTO_APPROVE },
       };
     }
