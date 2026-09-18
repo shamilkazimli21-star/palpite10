@@ -73,6 +73,25 @@ drafts a new playbook (max 3 guideline changes, safety-checked) → you get it i
 
 A/B tests run in parallel: only new leads are enrolled, 50/50 by hash, a winner needs ≥50 exposed people per variant **and** p < 0.05; winners are locked into the playbook. Two tests are seeded (opening question; VIP bridge). The coach's test ideas arrive as drafts → `/activate N`.
 
+## Admin panel — `/admin` (Turkish interface)
+
+Open `https://YOUR-DOMAIN/admin`. Password = `ADMIN_PASSWORD` (or `SETUP_SECRET` if you did not set one). One-time setup: run `supabase/admin_panel.sql` in the Supabase SQL Editor (adds the table for your conversation ratings).
+
+| Tab | What you do there |
+|---|---|
+| Genel Bakış | Funnel, conversion per step, campaigns, objections, latest payments, things waiting for you |
+| Konuşmalar | Read every conversation, translate it to Turkish, **rate the bot 1–5 with a note** (fed to the Sales Coach as its strongest evidence), write as the bot, mark "needs human", stop selling to a person |
+| İşletme Bilgileri | Every fact the bot may state: channels, VIP benefits, plans and prices, track record, testimonials, promotion, refund policy, tone, "never say" |
+| Satış Asistanı | Edit the sales prompt blocks and per-stage instructions, see the locked safety rules, **test chat** against the real agent without Telegram |
+| Kurallar ve Puanlama | Invite/offer timing, score threshold, follow-up schedule and texts, lead-score weights |
+| Öğrenme | Approve / reject Coach proposals (with a diff), edit the live playbook, create / start / stop A/B tests, run the learning cycle now |
+| Ödemeler | All Whop payments; link an unmatched payment to a Telegram ID (delivers VIP) |
+| Sistem | Health of every integration, re-register the Telegram webhook, send due follow-ups now, failed webhooks |
+
+How it works: `src/config/*` are the defaults; whatever you save in the panel is stored in Supabase (`app_state` → `settings`) and applied on top at runtime by `src/lib/settings.ts` — live in ~30 seconds, no redeploy. "Varsayılana dön" removes your override. Saved texts containing guarantees / fake urgency are rejected, and the non-negotiable safety rules of the prompt are intentionally not editable.
+
+Files: `app/admin/page.tsx` (UI), `app/api/admin/route.ts` (API + login), `src/lib/settings.ts` (settings layer).
+
 ## Admin commands (from `TELEGRAM_ADMIN_CHAT_ID`)
 
 `/stats [days]` `/funnel` `/campaigns [days]` `/objections [days]` · `/playbook [N]` `/proposals` (or `/playbooks`) `/approve N` `/reject N` · `/experiments` `/activate N` `/stopexp N` · `/learn` `/followups` · `/say <telegram_id> <text>` `/done <telegram_id>` `/link <payment_id> <telegram_id>` · `/help`

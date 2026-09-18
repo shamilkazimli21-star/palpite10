@@ -1,11 +1,16 @@
 import Link from "next/link";
 import JoinFreeButton from "@/components/JoinFreeButton";
 import { BUSINESS } from "@/src/config/business";
+import { loadSettings } from "@/src/lib/settings";
+
+// Re-generated at most every 2 minutes so edits made in the admin panel show up here.
+export const revalidate = 120;
 
 // Illustration only: which box the "pen" marks on each line of the slip. No real matches, no real picks.
 const MARKS = [0, 2, 1, 0, 0, 2, 1, 0, 2, 0];
 
-export default function Home() {
+export default async function Home() {
+  await loadSettings();
   return (
     <main className="page">
       <header className="top">

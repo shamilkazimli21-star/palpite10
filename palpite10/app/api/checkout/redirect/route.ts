@@ -1,3 +1,4 @@
+import { loadSettings } from "@/src/lib/settings";
 import { NextResponse, type NextRequest } from "next/server";
 import { BUSINESS, getPlan } from "@/src/config/business";
 import { META_EVENTS } from "@/src/config/funnel";
@@ -28,6 +29,7 @@ function page(title: string, body: string, status = 200) {
 
 export async function GET(request: NextRequest) {
   const token = request.nextUrl.searchParams.get("t") ?? "";
+  await loadSettings();
   const plan = getPlan(request.nextUrl.searchParams.get("plan") ?? "");
   if (!plan || !/^[A-Za-z0-9_-]{10,64}$/.test(token)) return page("Link inválido", "Volte ao Telegram e envie /planos para receber um link novo.", 400);
 

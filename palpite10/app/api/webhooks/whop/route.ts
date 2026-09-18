@@ -1,3 +1,4 @@
+import { loadSettings } from "@/src/lib/settings";
 import { NextResponse, type NextRequest } from "next/server";
 import { getEnv } from "@/src/lib/env";
 import { db } from "@/src/lib/supabase";
@@ -22,6 +23,7 @@ export async function POST(request: NextRequest) {
   }
 
   const eventId = request.headers.get("webhook-id")!;
+  await loadSettings();
   const type = String(payload.type ?? payload.action ?? "").replace(/_/g, ".").replace("membership.went.valid", "membership.activated").replace("membership.went.invalid", "membership.deactivated");
   const data = payload.data;
 

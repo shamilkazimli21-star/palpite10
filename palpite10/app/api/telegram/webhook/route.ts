@@ -1,3 +1,4 @@
+import { loadSettings } from "@/src/lib/settings";
 import { NextResponse, type NextRequest } from "next/server";
 import { BUSINESS } from "@/src/config/business";
 import { getEnv } from "@/src/lib/env";
@@ -150,6 +151,7 @@ export async function POST(request: NextRequest) {
   const update = (await request.json().catch(() => null)) as Update | null;
   if (!update || typeof update.update_id !== "number") return NextResponse.json({ ok: true });
   const id = update.update_id;
+  await loadSettings();
 
   // ---- idempotency: Telegram re-sends an update until it gets a 2xx ----
   const { error: insertError } = await db().from("telegram_updates").insert({ update_id: id });

@@ -37,6 +37,12 @@ const coachSchema = z.object({
     .catch([]),
 });
 
+const OWNER_REVIEWS_NOTE = `
+
+# owner_reviews
+Ratings (1 = bad, 5 = excellent) and notes written by the BUSINESS OWNER after reading real conversations (notes may be in Turkish, English or Portuguese).
+They are the strongest qualitative evidence you have: a complaint the owner repeats must be addressed before anything else — still inside the forbidden list and the change limit. Mention in "summary" how you used them.`;
+
 export type CoachResult =
   | { status: "waiting"; pending: number; needed: number }
   | { status: "rejected"; problems: string[] }
@@ -79,6 +85,15 @@ export async function runCoach(options: { force?: boolean } = {}): Promise<Coach
     listExperiments(["running", "won", "inconclusive"]),
   ]);
 
+  // Ratings + notes the owner wrote in the admin panel (table may not exist on old installs → ignore errors).
+  const { data: reviewRows } = await db()
+    .from("conversation_reviews")
+    .select("lead_id, rating, note, leads(stage, outcome, paid)")
+    .is("used_in_batch", null)
+    .order("updated_at", { ascending: true })
+    .limit(40);
+  const reviews = (reviewRows ?? []) as unknown as { lead_id: string; rating: number; note: string | null; leads: Record<string, unknown> | null }[];
+
   const compact = pending.map((a) => ({
     outcome: a.outcome,
     loss_reason: a.loss_reason,
@@ -101,12 +116,13 @@ export async function runCoach(options: { force?: boolean } = {}): Promise<Coach
     objections_last_30_days: objections,
     experiments: experiments.map((e) => ({ id: e.id, slot: e.slot, name: e.name, status: e.status, metric: e.metric, winner: e.winner, results: e.results })),
     new_conversation_analyses: compact,
+    owner_reviews: reviews.map((r) => ({ rating_1_to_5: r.rating, note: r.note, stage: r.leads?.stage, paid: r.leads?.paid })),
   };
 
   const env = getEnv();
   const { json } = await deepseekJson({
     messages: [
-      { role: "system", content: COACH_PROMPT },
+      { role: "system", content: COACH_PROMPT + OWNER_REVIEWS_NOTE },
       { role: "user", content: `DATA (json):\n${JSON.stringify(input)}` },
     ],
     model: env.DEEPSEEK_COACH_MODEL ?? env.DEEPSEEK_MODEL,
@@ -143,6 +159,10 @@ export async function runCoach(options: { force?: boolean } = {}): Promise<Coach
     .from("conversation_analyses")
     .update({ batch_id: batch.id })
     .in("lead_id", pending.map((a) => a.lead_id as string));
+
+  if (reviews.length) {
+    await db().from("conversation_reviews").update({ used_in_batch: batch.id }).in("lead_id", reviews.map((r) => r.lead_id));
+  }
 
   if (!parsed.success) {
     const problems = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`);
