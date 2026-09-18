@@ -80,6 +80,7 @@ Open `https://YOUR-DOMAIN/admin`. Password = `ADMIN_PASSWORD` (or `SETUP_SECRET`
 | Tab | What you do there |
 |---|---|
 | Genel Bakış | Funnel, conversion per step, campaigns, objections, latest payments, things waiting for you |
+| Analiz | Type your ad spend → CAC, cost per Lead / CompleteRegistration, ROAS, LTV, MRR; daily flow, spend vs revenue, monthly revenue (new vs renewal), retention cohorts, churn, plan mix, campaigns, best customers, days-to-buy, activity by hour, loss reasons, bot quality trend, playbook versions — and an "AI analysis" button that turns the numbers into a prioritised to-do list (Turkish). Backed by `daily_stats` + `payments`, so it survives deleting chats, logs or leads. One-time: run `supabase/analytics.sql` |
 | Konuşmalar | Read every conversation, translate it to Turkish, **rate the bot 1–5 with a note** (fed to the Sales Coach as its strongest evidence), write as the bot, mark "needs human", stop selling to a person |
 | İşletme Bilgileri | Every fact the bot may state: channels, VIP benefits, plans and prices, track record, testimonials, promotion, refund policy, tone, "never say" |
 | Satış Asistanı | Edit the sales prompt blocks and per-stage instructions, see the locked safety rules, **test chat** against the real agent without Telegram |

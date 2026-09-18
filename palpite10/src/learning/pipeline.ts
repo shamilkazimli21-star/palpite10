@@ -122,6 +122,7 @@ export async function runLearningCycle(options: { forceCoach?: boolean; digest?:
     coach = { status: "error", message: (error as Error).message.slice(0, 300) };
   }
 
+  await db().rpc("refresh_daily_stats", { p_days: 120 }).then((r) => r.error && console.error("[analytics]", r.error.message, "— run supabase/analytics.sql"));
   const purged = await purgeOldData();
   const result: LearningRunResult = { closedAsSilent, analyzed, analysisErrors: errors, experimentNotes, coach, purged };
   if (options.digest !== false) await dailyDigest(result).catch((e) => console.error("[learning] digest:", e));

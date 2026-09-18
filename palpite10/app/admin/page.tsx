@@ -1217,9 +1217,270 @@ function DataAdmin() {
 }
 
 /* =====================================================================
+ *  ANALİZ  (reklam harcaması → CAC / ROAS, huni, gelir, elde tutma, yapay zekâ yorumu)
+ * ===================================================================== */
+const LOSS_TR: Record<string, string> = { NO_RESPONSE: "Hiç cevap vermedi", NOT_INTERESTED: "İlgilenmedi", PRICE: "Fiyat", TRUST: "Güvenmedi", VALUE_UNCLEAR: "Değeri anlamadı", TIMING: "Zamanı değil", CONFUSION: "Kafası karıştı", COULD_NOT_JOIN: "Kanala giremedi", CHECKOUT_ABANDONED: "Ödemeyi yarıda bıraktı", NOT_TARGET_AUDIENCE: "Hedef kitle değil", RISK_FLAG: "Yaş / risk işareti", OTHER: "Diğer" };
+const SEGMENT_TR: Record<string, string> = { frequent_bettor: "Sık oynayan", casual_fan: "Sıradan taraftar", analysis_seeker: "Analiz arayan", price_sensitive: "Fiyata duyarlı", vip_curious: "VIP meraklısı", free_only: "Yalnızca ücretsiz" };
+const C = { green: "#0b7a3b", blue: "#1f6fd1", amber: "#e09b00", red: "#c0392b", purple: "#7a4fd1", grey: "#9aa9a0" };
+const n0 = (v: unknown) => Number(v ?? 0);
+const tl = (v: number | null | undefined, digits = 2) => (v === null || v === undefined ? "–" : `R$ ${v.toLocaleString("tr-TR", { minimumFractionDigits: digits, maximumFractionDigits: digits })}`);
+const shortDay = (d: string) => `${d.slice(8, 10)}.${d.slice(5, 7)}`;
+const isoDay = (offset: number) => new Date(Date.now() - offset * 86_400_000).toISOString().slice(0, 10);
+
+function Delta({ now, prev, lowerIsBetter }: { now: number | null; prev: number | null; lowerIsBetter?: boolean }) {
+  if (now === null || prev === null || !prev) return null;
+  const change = ((now - prev) / Math.abs(prev)) * 100;
+  if (!Number.isFinite(change) || Math.abs(change) < 0.5) return <Pill>≈ aynı</Pill>;
+  const good = lowerIsBetter ? change < 0 : change > 0;
+  return <Pill tone={good ? "green" : "red"}>{change > 0 ? "▲" : "▼"} %{Math.abs(change).toFixed(0)}</Pill>;
+}
+function Kpi({ label, value, sub, now, prev, lowerIsBetter }: { label: string; value: ReactNode; sub?: ReactNode; now?: number | null; prev?: number | null; lowerIsBetter?: boolean }) {
+  return (
+    <div className="a-stat">
+      <span>{label}</span>
+      <b style={{ fontSize: 23, margin: "4px 0" }}>{value}</b>
+      <div className="a-row" style={{ gap: 6 }}>{now !== undefined && <Delta now={now ?? null} prev={prev ?? null} lowerIsBetter={lowerIsBetter} />}{sub && <span style={{ fontSize: 12.5 }}>{sub}</span>}</div>
+    </div>
+  );
+}
+
+function Legend({ items }: { items: { name: string; color: string }[] }) {
+  return <div className="a-row" style={{ gap: 14, marginBottom: 6, fontSize: 13 }}>{items.map((i) => <span key={i.name}><i style={{ display: "inline-block", width: 10, height: 10, borderRadius: 3, background: i.color, marginRight: 5 }} />{i.name}</span>)}</div>;
+}
+function LineChart({ labels, series, money: isMoney }: { labels: string[]; series: { name: string; color: string; values: number[] }[]; money?: boolean }) {
+  const W = 640, H = 210, L = 44, R = 8, T = 8, B = 24;
+  const max = Math.max(1, ...series.flatMap((s) => s.values));
+  const x = (i: number) => L + (labels.length <= 1 ? (W - L - R) / 2 : (i / (labels.length - 1)) * (W - L - R));
+  const y = (v: number) => T + (1 - v / max) * (H - T - B);
+  const ticks = [0, 0.5, 1].map((t) => Math.round(max * t));
+  const step = Math.max(1, Math.ceil(labels.length / 7));
+  return (
+    <div>
+      <Legend items={series} />
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img">
+        {ticks.map((t) => <g key={t}><line x1={L} x2={W - R} y1={y(t)} y2={y(t)} stroke="#e6ebe8" /><text x={L - 6} y={y(t) + 4} textAnchor="end" fontSize="11" fill="#7a8a81">{isMoney ? t.toLocaleString("tr-TR") : t}</text></g>)}
+        {labels.map((l, i) => (i % step === 0 || i === labels.length - 1) && <text key={i} x={x(i)} y={H - 6} textAnchor="middle" fontSize="11" fill="#7a8a81">{l}</text>)}
+        {series.map((s) => (
+          <g key={s.name}>
+            <polyline fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
+            {s.values.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={labels.length > 40 ? 1.6 : 3} fill={s.color}><title>{`${labels[i]} · ${s.name}: ${isMoney ? tl(v) : v}`}</title></circle>)}
+          </g>
+        ))}
+      </svg>
+    </div>
+  );
+}
+function Columns({ labels, stacks, line }: { labels: string[]; stacks: { name: string; color: string; values: number[] }[]; line?: { name: string; color: string; values: number[] } }) {
+  const W = 640, H = 220, L = 50, R = 8, T = 8, B = 24;
+  const totals = labels.map((_, i) => stacks.reduce((t, s) => t + (s.values[i] ?? 0), 0));
+  const max = Math.max(1, ...totals, ...(line?.values ?? []));
+  const band = (W - L - R) / Math.max(1, labels.length);
+  const y = (v: number) => T + (1 - v / max) * (H - T - B);
+  return (
+    <div>
+      <Legend items={[...stacks, ...(line ? [line] : [])]} />
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }} role="img">
+        {[0, 0.5, 1].map((t) => <g key={t}><line x1={L} x2={W - R} y1={y(max * t)} y2={y(max * t)} stroke="#e6ebe8" /><text x={L - 6} y={y(max * t) + 4} textAnchor="end" fontSize="11" fill="#7a8a81">{Math.round(max * t).toLocaleString("tr-TR")}</text></g>)}
+        {labels.map((l, i) => {
+          let base = 0;
+          return (
+            <g key={i}>
+              {stacks.map((s) => { const v = s.values[i] ?? 0; const top = y(base + v); const h = y(base) - top; base += v; return <rect key={s.name} x={L + i * band + band * 0.18} width={band * 0.64} y={top} height={Math.max(0, h)} fill={s.color} rx="2"><title>{`${l} · ${s.name}: ${tl(v)}`}</title></rect>; })}
+              <text x={L + i * band + band / 2} y={H - 6} textAnchor="middle" fontSize="11" fill="#7a8a81">{l}</text>
+            </g>
+          );
+        })}
+        {line && <polyline fill="none" stroke={line.color} strokeWidth="2.2" strokeDasharray="5 4" points={line.values.map((v, i) => `${L + i * band + band / 2},${y(v)}`).join(" ")} />}
+      </svg>
+    </div>
+  );
+}
+function HBars({ items, color, unit }: { items: { label: string; value: number; note?: string }[]; color?: string; unit?: string }) {
+  const max = Math.max(1, ...items.map((i) => i.value));
+  if (!items.length) return <p className="a-help">Henüz veri yok.</p>;
+  return (
+    <div>
+      {items.map((i) => (
+        <div key={i.label} style={{ display: "grid", gridTemplateColumns: "minmax(110px, 36%) 1fr 90px", gap: 10, alignItems: "center", padding: "4px 0", fontSize: 14 }}>
+          <span>{i.label}</span>
+          <div className="a-bar"><i style={{ width: `${(i.value / max) * 100}%`, background: color ?? C.green }} /></div>
+          <span><b>{i.value}</b>{unit ?? ""} {i.note && <span className="a-help">{i.note}</span>}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AiResult({ entry }: { entry: Any }) {
+  const r = entry?.result ?? {};
+  const tone = r.saglik === "iyi" ? "green" : r.saglik === "zayıf" ? "red" : "amber";
+  const Listing = ({ title, items }: { title: string; items?: string[] }) => (items?.length ? <div style={{ marginTop: 10 }}><h3>{title}</h3>{items.map((x, i) => <p key={i} style={{ fontSize: 14, marginTop: 4 }}>• {x}</p>)}</div> : null);
+  return (
+    <div>
+      <p className="a-help">{when(entry.at)} · dönem {entry.period?.from} → {entry.period?.to}</p>
+      <p style={{ margin: "8px 0" }}>{r.saglik && <Pill tone={tone as Any}>Genel durum: {String(r.saglik).replace("_", " ")}</Pill>} {r.ozet}</p>
+      {r.en_buyuk_kayip && <div className="a-warn"><b>En büyük kayıp:</b> {r.en_buyuk_kayip}</div>}
+      {(r.oneriler ?? []).map((o: Any, i: number) => (
+        <div key={i} style={{ border: "1px solid #e1e8e4", borderRadius: 12, padding: 12, marginBottom: 10 }}>
+          <h3>{o.oncelik ?? i + 1}. {o.baslik} {o.zorluk && <Pill>{o.zorluk}</Pill>}</h3>
+          {o.neden && <p style={{ fontSize: 14, marginTop: 6 }}><b>Neden:</b> {o.neden}</p>}
+          {o.nasil && <p style={{ fontSize: 14, marginTop: 4 }}><b>Nasıl:</b> {o.nasil}</p>}
+          {o.beklenen_etki && <p style={{ fontSize: 14, marginTop: 4 }}><b>Beklenen etki:</b> {o.beklenen_etki}</p>}
+        </div>
+      ))}
+      <div className="a-grid2"><Listing title="İyi gidenler" items={r.iyi_gidenler} /><Listing title="Sorunlar" items={r.sorunlar} /></div>
+      <div className="a-grid2"><Listing title="Gelecek hafta izleyin" items={r.izlenecek_sayilar} /><Listing title="Eksik veri" items={r.eksik_veri} /></div>
+    </div>
+  );
+}
+
+function Analytics() {
+  const [range, setRange] = useState({ from: isoDay(29), to: isoDay(0) });
+  const [d, setD] = useState<Any>(null);
+  const [sp, setSp] = useState<Any>({ from: isoDay(6), to: isoDay(0), campaign: "", amount: "", note: "" });
+  const [ai, setAi] = useState<Any>(null);
+  const [busy, run] = useBusy();
+  const load = useCallback(() => run("load", async () => { const r = await api("analytics", range); setD(r); setAi((cur: Any) => cur ?? r.aiHistory?.[0] ?? null); }), [range, run]);
+  useEffect(() => { load(); }, [load]);
+  const preset = (label: string, from: string, to = isoDay(0)) => <Btn key={label} small kind={range.from === from && range.to === to ? undefined : "soft"} onClick={() => setRange({ from, to })}>{label}</Btn>;
+  const now = new Date();
+  const monthStart = (offset: number) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1)).toISOString().slice(0, 10);
+  const lastMonthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0)).toISOString().slice(0, 10);
+
+  if (!d) return <p className="a-help">Yükleniyor…</p>;
+  const t = d.totals, p = d.previous, u = d.unit, up = d.unitPrevious, sub = d.subscriptions, x = d.extra ?? {};
+  const labels = d.series.map((s: Any) => shortDay(s.day));
+  const pick = (k: string) => d.series.map((s: Any) => n0(s[k]));
+  const funnel = [["Sitede düğmeye basan", t.clicks], ["Botu başlatan (Lead)", t.started], ["Bota cevap yazan", t.replied], ["Ücretsiz kanala giren (Kayıt)", t.joined_free], ["VIP planlarını gören", t.saw_plans], ["Ödeme sayfasını açan", t.checkouts], ["Satın alan", t.customers]] as [string, number][];
+  const heat = (v: number | null) => (v === null ? "#fafcfb" : `rgba(11,122,59,${0.08 + (v / 100) * 0.72})`);
+
+  return (
+    <>
+      <h1>Analiz</h1>
+      <p className="a-intro">İşinizin bütün sayıları tek yerde. Reklam harcamanızı yazın; müşteri edinme maliyeti (CAC), reklam getirisi (ROAS) ve diğerleri kendiliğinden hesaplanır. Bu sayılar küçük bir günlük özet tablosunda ve ödeme kayıtlarında tutulur: <b>mesajları, kayıtları, hatta kişileri silseniz bile geçmiş burada kalır</b> ve neredeyse hiç yer kaplamaz. Tarihler Brezilya saatine göredir.</p>
+      {d.sqlMissing && <div className="a-warn">Analiz tabloları bulunamadı. Supabase → SQL Editor'de <b>supabase/analytics.sql</b> dosyasını bir kez çalıştırın, sonra bu sayfayı yenileyin.</div>}
+
+      <div className="a-row" style={{ marginBottom: 14 }}>
+        {preset("Son 7 gün", isoDay(6))}{preset("Son 30 gün", isoDay(29))}{preset("Son 90 gün", isoDay(89))}{preset("Bu ay", monthStart(0))}{preset("Geçen ay", monthStart(1), lastMonthEnd)}{d.firstDay && preset("Tümü", d.firstDay)}
+        <input type="date" style={{ width: 150 }} value={range.from} max={range.to} onChange={(e) => e.target.value && setRange({ ...range, from: e.target.value })} />
+        <input type="date" style={{ width: 150 }} value={range.to} min={range.from} onChange={(e) => e.target.value && setRange({ ...range, to: e.target.value })} />
+        {busy === "load" && <span className="a-help">Yükleniyor…</span>}
+      </div>
+      <p className="a-help" style={{ marginBottom: 10 }}>Oklar bir önceki eş uzunluktaki dönemle ({d.period.previousFrom} → {d.period.previousTo}) karşılaştırır.</p>
+
+      <div className="a-stats">
+        <Kpi label="Reklam harcaması" value={tl(t.spend)} now={t.spend} prev={p.spend} sub={t.spend ? undefined : "aşağıdan girin"} />
+        <Kpi label="Kasaya giren gelir" value={tl(t.cash)} now={t.cash} prev={p.cash} sub="bu dönemdeki ödemeler" />
+        <Kpi label="ROAS (reklam getirisi)" value={u.roasCash === null ? "–" : `${u.roasCash}x`} now={u.roasCash} prev={up.roasCash} sub="1 R$ harcama → kaç R$ gelir" />
+        <Kpi label="CAC (müşteri başına maliyet)" value={tl(u.cac)} now={u.cac} prev={up.cac} lowerIsBetter sub={`${t.customers} yeni müşteri`} />
+        <Kpi label="Lead (botu başlatan)" value={t.started} now={t.started} prev={p.started} sub={`lead başına ${tl(u.costPerLead)}`} />
+        <Kpi label="Kayıt (kanala giren)" value={t.joined_free} now={t.joined_free} prev={p.joined_free} sub={`kayıt başına ${tl(u.costPerRegistration)}`} />
+        <Kpi label="Lead → müşteri" value={u.leadToCustomer === null ? "–" : `%${u.leadToCustomer}`} now={u.leadToCustomer} prev={up.leadToCustomer} sub="botu başlatanların yüzde kaçı aldı" />
+        <Kpi label="Müşteri başına gelir" value={tl(u.revenuePerCustomer)} now={u.revenuePerCustomer} prev={up.revenuePerCustomer} sub="bu dönemde gelenlerin bugüne dek ödediği" />
+        <Kpi label="Aktif abone" value={sub.activeNow} sub={`toplam ${sub.customersEver} müşteri oldu`} />
+        <Kpi label="Aylık yinelenen gelir (tahmini)" value={tl(sub.mrr)} sub="aktif abonelerin aylık karşılığı" />
+        <Kpi label="Yaşam boyu değer (LTV)" value={tl(sub.ltv)} sub={sub.avgLifetimeMonths ? `ortalama ${sub.avgLifetimeMonths} ay kalıyor` : undefined} />
+        <Kpi label="İade oranı" value={sub.refundRate === null ? "–" : `%${sub.refundRate}`} sub="ödemelerin yüzde kaçı iade edildi" />
+      </div>
+      {u.cac !== null && sub.ltv !== null && <div className={u.cac < sub.ltv ? "a-info" : "a-warn"}>{u.cac < sub.ltv ? `✅ Bir müşteri size ortalama ${tl(sub.ltv)} kazandırıyor, edinmesi ${tl(u.cac)} tutuyor: reklam kârlı görünüyor (LTV / CAC = ${(sub.ltv / u.cac).toFixed(1)}).` : `⚠️ Bir müşteriyi edinmek (${tl(u.cac)}) şu an size kazandırdığından (${tl(sub.ltv)}) pahalı. Yeni abonelerin yenilemeleri LTV'yi zamanla yükseltir; yine de huniye ve reklam maliyetine bakın.`} Müşteri sayısı azken bu oran hızla değişir.</div>}
+
+      <Card title="Reklam harcaması girin" desc="Meta Ads Manager'da gördüğünüz tutarı R$ olarak yazın. Bir tarih aralığı seçerseniz tutar günlere eşit bölünür. Kampanya seçerseniz o kampanyanın CAC'ı ayrıca hesaplanır (reklam linkinizdeki utm_campaign ile aynı ad olmalı).">
+        <div className="a-row" style={{ alignItems: "flex-end" }}>
+          <div style={{ width: 150 }}><Field label="Başlangıç"><input type="date" value={sp.from} onChange={(e) => setSp({ ...sp, from: e.target.value })} /></Field></div>
+          <div style={{ width: 150 }}><Field label="Bitiş"><input type="date" value={sp.to} min={sp.from} onChange={(e) => setSp({ ...sp, to: e.target.value })} /></Field></div>
+          <div style={{ width: 220 }}><Field label="Kampanya"><input list="camp-names" value={sp.campaign} placeholder="Boş = genel" onChange={(e) => setSp({ ...sp, campaign: e.target.value })} /><datalist id="camp-names">{d.campaignNames.map((c: string) => <option key={c} value={c} />)}</datalist></Field></div>
+          <div style={{ width: 140 }}><Field label="Tutar (R$)"><input type="number" inputMode="decimal" min={0} step="0.01" value={sp.amount} onChange={(e) => setSp({ ...sp, amount: e.target.value })} /></Field></div>
+          <div style={{ flex: 1, minWidth: 140 }}><Field label="Not"><Txt value={sp.note} onChange={(v) => setSp({ ...sp, note: v })} /></Field></div>
+          <div className="a-field"><Btn disabled={!sp.amount || !sp.from || !sp.to} busy={busy === "spend"} onClick={() => run("spend", async () => { await api("spend_save", { ...sp, amount: Number(sp.amount) }); setSp({ ...sp, amount: "", note: "" }); await load(); }, "Harcama kaydedildi.")}>Kaydet</Btn></div>
+        </div>
+        {d.spendEntries.length > 0 && (
+          <div className="a-scroll"><table className="a-table"><thead><tr><th>Dönem</th><th>Kampanya</th><th>Tutar</th><th>Not</th><th /></tr></thead><tbody>
+            {d.spendEntries.map((e: Any) => <tr key={e.batch}><td>{e.from === e.to ? e.from : `${e.from} → ${e.to}`}</td><td>{e.campaign || "Genel"}</td><td>{tl(e.amount)}</td><td className="a-help">{e.note}</td><td><Btn small kind="danger" onClick={() => window.confirm("Bu harcama kaydı silinsin mi?") && run(e.batch, async () => { await api("spend_delete", { batch: e.batch }); await load(); })}>Sil</Btn></td></tr>)}
+          </tbody></table></div>
+        )}
+      </Card>
+
+      <Card title="🤖 Yapay zekâ yorumu" desc="Bu sayfadaki bütün sayıları yapay zekâya gönderir; o da en büyük kaybı bulur ve öncelik sırasıyla ne yapmanız gerektiğini söyler. 1–2 dakika sürebilir ve küçük bir DeepSeek ücreti harcar. Veri azsa “henüz erken” der — bu doğru cevaptır." right={<Btn busy={busy === "ai"} onClick={() => run("ai", async () => setAi((await api("analytics_ai", range)).entry))}>Seçili dönemi analiz et</Btn>}>
+        {busy === "ai" && <p className="a-help">Analiz ediliyor… sayfayı kapatmayın.</p>}
+        {ai ? <AiResult entry={ai} /> : <p className="a-help">Henüz analiz yapılmadı.</p>}
+        {(d.aiHistory ?? []).length > 1 && <div className="a-row" style={{ marginTop: 12 }}><span className="a-help">Önceki analizler:</span>{d.aiHistory.map((h: Any) => <Btn key={h.at} small kind="soft" onClick={() => setAi(h)}>{when(h.at)}</Btn>)}</div>}
+      </Card>
+
+      <div className="a-grid2">
+        <Card title="Günlük akış" desc={`Her ${d.period.bucket === "week" ? "hafta" : "gün"} gelen kişi sayıları.`}>
+          <LineChart labels={labels} series={[{ name: "Düğmeye basan", color: C.grey, values: pick("clicks") }, { name: "Lead", color: C.blue, values: pick("started") }, { name: "Kayıt", color: C.amber, values: pick("joined_free") }, { name: "Müşteri", color: C.green, values: pick("customers") }]} />
+        </Card>
+        <Card title="Harcama ve gelir" desc="Yeşil çizgi sarının üstündeyse o günler kârlıdır.">
+          <LineChart money labels={labels} series={[{ name: "Harcama", color: C.amber, values: pick("spend") }, { name: "Kasaya giren", color: C.green, values: pick("cash") }]} />
+        </Card>
+      </div>
+
+      <div className="a-grid2">
+        <Card title="Huni (bu dönemde gelenler)" desc="Yüzde, bir önceki adımdan kaç kişinin devam ettiğini gösterir. En düşük yüzde = en büyük kayıp.">
+          {funnel.map(([label, v], i) => <div className="a-funnel" style={{ gridTemplateColumns: "minmax(150px, 40%) 1fr 96px" }} key={label}><span>{label}</span><div className="a-bar"><i style={{ width: `${(v / Math.max(1, ...funnel.map((f) => f[1]))) * 100}%` }} /></div><span><b>{v}</b> {i > 0 && <span className="a-help">({pct(v, funnel[i - 1]![1])})</span>}</span></div>)}
+          <p className="a-help" style={{ marginTop: 8 }}>Düğme başına {tl(u.costPerClick)} · ödeme sayfası başına {tl(u.costPerCheckout)}</p>
+        </Card>
+        <Card title="Plan dağılımı" desc="İlk satın almada hangi plan seçiliyor, şu an kaç aktif abone var?">
+          {d.planMix.map((m: Any) => <div key={m.plan} style={{ padding: "6px 0", borderBottom: "1px dashed #e6ebe8" }}><b>{PLAN_TR[m.plan] ?? m.plan}</b> <span className="a-help">({m.name})</span><br /><span style={{ fontSize: 14 }}>{m.firstPurchases} ilk satış · {m.activeNow} aktif · toplam {tl(m.revenue)}</span></div>)}
+        </Card>
+      </div>
+
+      <Card title="Aylık gelir" desc="Koyu yeşil = yeni müşteriler, açık yeşil = yenilemeler, kesikli çizgi = reklam harcaması. Yenileme payı büyüdükçe iş sağlamlaşır.">
+        <Columns labels={d.monthly.map((m: Any) => m.month.slice(5) + "/" + m.month.slice(2, 4))} stacks={[{ name: "Yeni müşteri geliri", color: C.green, values: d.monthly.map((m: Any) => m.newRevenue) }, { name: "Yenileme geliri", color: "#8fd3a8", values: d.monthly.map((m: Any) => m.renewalRevenue) }]} line={{ name: "Reklam harcaması", color: C.amber, values: d.monthly.map((m: Any) => m.spend) }} />
+        <div className="a-scroll"><table className="a-table" style={{ marginTop: 10 }}><thead><tr><th>Ay</th><th>Yeni müşteri</th><th>Aktif abone</th><th>Ayrılma oranı</th><th>İade</th><th>Harcama</th><th>Gelir</th></tr></thead><tbody>
+          {d.monthly.slice(-6).reverse().map((m: Any) => <tr key={m.month}><td>{m.month}</td><td>{m.newCustomers}</td><td>{m.activeCustomers}</td><td>{m.churnRate === null ? "–" : `%${m.churnRate}`}</td><td>{tl(m.refunds)}</td><td>{tl(m.spend)}</td><td><b>{tl(m.newRevenue + m.renewalRevenue)}</b></td></tr>)}
+        </tbody></table></div>
+      </Card>
+
+      <Card title="Elde tutma (retention)" desc="Her satır, ilk ödemesini o ay yapan müşterilerdir. Sütunlar: kaç ay sonra yüzde kaçı hâlâ abone. Haftalık plan 7, aylık 31, 3 aylık 92 gün “abone” sayılır.">
+        {d.retention.length ? (
+          <div className="a-scroll"><table className="a-table" style={{ minWidth: 560 }}><thead><tr><th>İlk ödeme ayı</th><th>Kişi</th>{[0, 1, 2, 3, 4, 5, 6].map((n) => <th key={n}>{n === 0 ? "İlk ay" : `+${n} ay`}</th>)}</tr></thead><tbody>
+            {d.retention.map((r: Any) => <tr key={r.month}><td>{r.month}</td><td>{r.size}</td>{r.cells.map((v: number | null, i: number) => <td key={i} style={{ background: heat(v), textAlign: "center", fontWeight: 700, color: v !== null && v > 55 ? "#fff" : undefined }}>{v === null ? "" : `%${v}`}</td>)}</tr>)}
+          </tbody></table></div>
+        ) : <p className="a-help">İlk ödemeler geldikçe burada aylık elde tutma tablosu oluşur.</p>}
+      </Card>
+
+      <Card title="Kampanyalar" desc="Seçili dönemde gelenler. CAC ve ROAS için o kampanya adına harcama girmiş olmanız gerekir.">
+        <div className="a-scroll"><table className="a-table" style={{ minWidth: 760 }}><thead><tr><th>Kampanya</th><th>Düğme</th><th>Lead</th><th>Kayıt</th><th>Müşteri</th><th>Gelir</th><th>Harcama</th><th>Lead maliyeti</th><th>CAC</th><th>ROAS</th></tr></thead><tbody>
+          {d.campaigns.map((c: Any) => <tr key={c.campaign}><td>{c.campaign || "(kampanyasız / genel)"}</td><td>{c.clicks}</td><td>{c.started}</td><td>{c.joined_free}</td><td><b>{c.customers}</b></td><td>{tl(c.revenue)}</td><td>{tl(c.spend)}</td><td>{tl(c.costPerLead)}</td><td>{tl(c.cac)}</td><td>{c.roasCohort === null ? "–" : `${c.roasCohort}x`}</td></tr>)}
+          {!d.campaigns.length && <tr><td colSpan={10} className="a-help">Bu dönemde veri yok.</td></tr>}
+        </tbody></table></div>
+      </Card>
+
+      <Card title="En iyi müşteriler" desc="Toplam ödemeye göre ilk 15.">
+        <div className="a-scroll"><table className="a-table"><thead><tr><th>Müşteri</th><th>Toplam</th><th>Ödeme sayısı</th><th>Plan</th><th>İlk → son ödeme</th><th>Kampanya</th><th>Durum</th></tr></thead><tbody>
+          {d.topCustomers.map((c: Any, i: number) => <tr key={i}><td>{c.name} {c.username ? <span className="a-help">@{c.username}</span> : null}</td><td><b>{tl(c.total)}</b></td><td>{c.payments}</td><td>{PLAN_TR[c.plan] ?? "–"}</td><td className="a-help">{c.first} → {c.last}</td><td className="a-help">{c.campaign ?? "–"}</td><td>{c.active ? <Pill tone="green">Aktif</Pill> : <Pill>Bitti</Pill>}</td></tr>)}
+          {!d.topCustomers.length && <tr><td colSpan={7} className="a-help">Henüz müşteri yok.</td></tr>}
+        </tbody></table></div>
+      </Card>
+
+      <div className="a-grid2">
+        <Card title="Satın almaya kadar geçen gün" desc="İlk gelişten ilk ödemeye. Takip mesajlarının zamanlamasını buna göre ayarlayın."><HBars color={C.blue} items={(x.days_to_buy ?? []).map((r: Any) => ({ label: r.k === 0 ? "Aynı gün" : r.k >= 30 ? "30+ gün" : `${r.k}. gün`, value: n0(r.v) }))} /></Card>
+        <Card title="İnsanlar ne zaman yazıyor? (son 30 gün)" desc="Brezilya saatiyle, müşteri mesajı sayısı. Kanal paylaşımı ve takip saatleri için."><LineChart labels={Array.from({ length: 24 }, (_, h) => `${h}`)} series={[{ name: "Mesaj", color: C.purple, values: Array.from({ length: 24 }, (_, h) => n0((x.hours ?? []).find((r: Any) => r.k === h)?.v)) }]} /></Card>
+        <Card title="Kişiler şu an hangi aşamada?"><HBars items={(x.stages ?? []).map((r: Any) => ({ label: STAGE_TR[r.k] ?? r.k, value: n0(r.v) }))} /></Card>
+        <Card title="İlgi puanı dağılımı" desc="60 ve üzeri = bot VIP teklif edebilir."><HBars color={C.amber} items={(x.scores ?? []).map((r: Any) => ({ label: `${r.k}–${r.k + 9}`, value: n0(r.v) }))} /></Card>
+        <Card title="Neden kaybediyoruz?" desc="Yapay zekânın biten konuşmalar için bulduğu ana neden."><HBars color={C.red} items={(x.loss_reasons ?? []).map((r: Any) => ({ label: LOSS_TR[r.k] ?? r.k, value: n0(r.v) }))} /></Card>
+        <Card title="Konuşma hangi aşamada koptu?"><HBars color={C.red} items={(x.drop_stages ?? []).map((r: Any) => ({ label: STAGE_TR[r.k] ?? r.k, value: n0(r.v) }))} /></Card>
+        <Card title="Müşteri tipleri" desc="Yapay zekânın konuşmalardan çıkardığı segment; parantez içi satın alanlar."><HBars color={C.purple} items={(x.segments ?? []).map((r: Any) => ({ label: SEGMENT_TR[r.k] ?? r.k, value: n0(r.v), note: `(${n0(r.paid)} aldı)` }))} /></Card>
+        <Card title="Botun konuşma kalitesi (haftalık)" desc={`Yapay zekânın 0–100 puanı.${x.owner_rating?.n ? ` Sizin verdiğiniz ortalama: ${x.owner_rating.avg} / 5 (${x.owner_rating.n} konuşma).` : " Siz de Konuşmalar sekmesinden puan verin."}`}>
+          {(x.quality_weekly ?? []).length > 1 ? <LineChart labels={(x.quality_weekly ?? []).map((r: Any) => shortDay(String(r.k)))} series={[{ name: "Kalite", color: C.green, values: (x.quality_weekly ?? []).map((r: Any) => n0(r.v)) }]} /> : <p className="a-help">En az iki haftalık analiz birikince grafik oluşur.</p>}
+        </Card>
+      </div>
+
+      <Card title="Satış rehberi sürümlerinin performansı" desc="Her kişi, ilk konuştuğu andaki rehber sürümüyle sayılır. Yeni sürüm gerçekten daha mı iyi satıyor?">
+        <div className="a-scroll"><table className="a-table"><thead><tr><th>Sürüm</th><th>Kişi</th><th>Cevap veren</th><th>Kanala giren</th><th>Planları gören</th><th>Ödeme sayfası</th><th>Satın alan</th><th>Oran</th></tr></thead><tbody>
+          {(d.playbooks ?? []).map((r: Any) => <tr key={r.playbook_version}><td>v{r.playbook_version}</td><td>{r.leads}</td><td>{r.replied}</td><td>{r.joined_free}</td><td>{r.saw_plans}</td><td>{r.checkout}</td><td><b>{r.paid}</b></td><td>%{(n0(r.paid_rate) * 100).toFixed(1)}</td></tr>)}
+          {!(d.playbooks ?? []).length && <tr><td colSpan={8} className="a-help">Henüz veri yok.</td></tr>}
+        </tbody></table></div>
+      </Card>
+    </>
+  );
+}
+
+/* =====================================================================
  *  Kabuk: giriş + menü
  * ===================================================================== */
-const TABS: [string, string][] = [["ozet", "📊 Genel Bakış"], ["konusmalar", "💬 Konuşmalar"], ["destek", "🆘 Destek Talepleri"], ["isletme", "🏷️ İşletme Bilgileri"], ["asistan", "🤖 Satış Asistanı"], ["mesajlar", "✉️ Hazır Mesajlar"], ["kurallar", "⚖️ Kurallar ve Puanlama"], ["ogrenme", "🧠 Öğrenme"], ["sayfa", "🌐 Açılış Sayfası"], ["entegrasyon", "🔌 Entegrasyonlar"], ["odemeler", "💳 Ödemeler"], ["veri", "🗑️ Veri Yönetimi"], ["sistem", "🛠️ Sistem"]];
+const TABS: [string, string][] = [["ozet", "📊 Genel Bakış"], ["analiz", "📈 Analiz"], ["konusmalar", "💬 Konuşmalar"], ["destek", "🆘 Destek Talepleri"], ["isletme", "🏷️ İşletme Bilgileri"], ["asistan", "🤖 Satış Asistanı"], ["mesajlar", "✉️ Hazır Mesajlar"], ["kurallar", "⚖️ Kurallar ve Puanlama"], ["ogrenme", "🧠 Öğrenme"], ["sayfa", "🌐 Açılış Sayfası"], ["entegrasyon", "🔌 Entegrasyonlar"], ["odemeler", "💳 Ödemeler"], ["veri", "🗑️ Veri Yönetimi"], ["sistem", "🛠️ Sistem"]];
 
 export default function AdminPage() {
   const [auth, setAuth] = useState<"checking" | "in" | "out">("checking");
@@ -1269,6 +1530,7 @@ export default function AdminPage() {
             <nav className="a-nav">{TABS.map(([k, l]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => { setOpenLead(null); setTab(k); }}>{l}</button>)}</nav>
             <main className="a-main">
               {tab === "ozet" && <Overview go={setTab} />}
+              {tab === "analiz" && <Analytics />}
               {tab === "konusmalar" && <Conversations key={openLead ?? "list"} initial={openLead} />}
               {tab === "destek" && <Tickets openLead={(id) => { setOpenLead(id); setTab("konusmalar"); }} />}
               {tab === "mesajlar" && <FlatSection section="texts" title="Hazır Mesajlar" groups={TEXT_GROUPS} intro={<>Botun yapay zekâya sormadan, AYNEN gönderdiği sabit mesajlar ve düğme yazıları. Müşteriler Brezilyalı olduğu için <b>Portekizce</b> yazın. Kullanabileceğiniz değişkenler: <code>{"{brand}"}</code> marka, <code>{"{vip}"}</code> VIP adı, <code>{"{age}"}</code> yaş sınırı, <code>{"{frequency}"}</code> ücretsiz kanal sıklığı; belirtilen yerlerde <code>{"{plan}"}</code> ve <code>{"{support}"}</code>. Garanti / sahte aciliyet içeren metinler kaydedilemez.</>} />}

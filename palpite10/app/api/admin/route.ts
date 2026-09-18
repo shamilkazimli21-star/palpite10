@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { LEARNING, type ExperimentMetric } from "@/src/config/funnel";
+import { analyticsAiHistory, getAnalytics, runAnalyticsAi, saveSpend, spDate } from "@/src/lib/analytics";
 import { envProblems, getEnv, type Env } from "@/src/lib/env";
 import { deepseekJson } from "@/src/lib/deepseek";
 import { getLeadById, getLeadByTelegramId, recordEvent, recordMessage, updateLead, type Lead, type StoredMessage } from "@/src/lib/leads";
@@ -280,6 +281,26 @@ async function handle(action: string, body: any): Promise<unknown> {
       return { message: await linkPaymentToLead(String(body.payment_id), lead) };
     }
 
+    /* ---------------- analytics ---------------- */
+    case "analytics":
+    case "analytics_ai": {
+      const isDay = (v: unknown): v is string => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+      const to = isDay(body.to) ? body.to : spDate(new Date());
+      const from = isDay(body.from) && body.from <= to ? body.from : spDate(new Date(Date.now() - 29 * 86_400_000));
+      const data = await getAnalytics(from, to);
+      if (action === "analytics_ai") return { entry: await runAnalyticsAi(data) };
+      return { ...data, aiHistory: await analyticsAiHistory() };
+    }
+    case "spend_save": {
+      const days = await saveSpend({ from: String(body.from), to: String(body.to), campaign: String(body.campaign ?? ""), amount: Number(body.amount), note: String(body.note ?? "") });
+      return { days };
+    }
+    case "spend_delete": {
+      const { error } = await db().from("ad_spend").delete().eq("batch", String(body.batch));
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    }
+
     case "meta_test":
       await loadSettings(true);
       return testMetaConnection();
@@ -331,6 +352,7 @@ async function handle(action: string, body: any): Promise<unknown> {
           outcome: lead.paid ? "won" : null, outcome_reason: lead.paid ? lead.outcome_reason : null, closed_at: lead.paid ? lead.closed_at : null, analyzed_at: null,
         });
       } else if (mode === "delete") {
+        await db().rpc("refresh_daily_stats", { p_days: 3650 }); // freeze this person's numbers into the permanent daily snapshot first
         // Payments are accounting records: they stay, but anonymised. Everything else about the person goes (cascade).
         await db().from("payments").update({ email: null, raw: null }).eq("lead_id", id);
         const { error } = await db().from("leads").delete().eq("id", id);
@@ -350,6 +372,7 @@ async function handle(action: string, body: any): Promise<unknown> {
       };
       const t = (table: string) => db().from(table).delete({ count: "exact" });
       const kind = String(body.kind);
+      if (kind === "never_started" || kind === "lost") await db().rpc("refresh_daily_stats", { p_days: 3650 }); // analytics keep the history
       let deleted: Record<string, number> = {};
       if (kind === "never_started") deleted = { leads: await del(t("leads").is("telegram_user_id", null).lt("created_at", cutoff)) };
       else if (kind === "lost") deleted = { leads: await del(t("leads").eq("outcome", "lost").eq("paid", false).lt("updated_at", cutoff)) };
