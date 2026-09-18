@@ -5,7 +5,8 @@ import { FUNNEL, type Stage } from "../config/funnel";
 import { FOLLOWUP_PROMPT, STAGE_INSTRUCTIONS, salesAgentStaticPrompt } from "../config/prompts";
 import { renderPlaybook, type Playbook } from "../learning/playbook";
 import type { Assignment } from "../learning/experiments";
-import { findForbiddenClaims, SAFE_FALLBACK_REPLY, ensureResultsDisclaimer } from "./guardrails";
+import { TEXTS } from "../config/texts";
+import { findForbiddenClaims, ensureResultsDisclaimer } from "./guardrails";
 import { hoursSince } from "../lib/util";
 
 /* ------------------------------------------------------------------ */
@@ -234,11 +235,11 @@ export async function runSalesAgent(input: AgentInput): Promise<AgentOutput> {
     correction = `Sua resposta anterior violou regras (${hits.join(", ")}): "${parsed.messages.join(" ")}". Reescreva sem promessas, sem números inventados, sem urgência, sem links.`;
     if (attempt === 1) {
       // Still unsafe after a correction → send something harmless and flag it for the owner.
-      return { ...parsed, messages: [SAFE_FALLBACK_REPLY], next_action: "handoff_human", guardrailHits: hits };
+      return { ...parsed, messages: [TEXTS.safeFallback], next_action: "handoff_human", guardrailHits: hits };
     }
   }
   return {
-    messages: [SAFE_FALLBACK_REPLY],
+    messages: [TEXTS.safeFallback],
     intent: "neutral",
     next_action: "none",
     signals: {},

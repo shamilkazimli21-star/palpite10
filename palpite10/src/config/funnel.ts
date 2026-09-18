@@ -277,12 +277,12 @@ export type ExperimentMetric = "reply" | "free_join" | "vip_offer" | "checkout" 
  * with EVERY event, which is what lets Meta attribute a Telegram event back to the ad.
  */
 export const META_EVENTS = {
-  ctaClick: { name: "Contact", actionSource: "website" },
-  botStarted: { name: "Lead", actionSource: "chat" },
-  freeJoined: { name: "CompleteRegistration", actionSource: "chat" },
-  vipOfferShown: { name: "VipOfferShown", actionSource: "chat" },
-  checkoutStarted: { name: "InitiateCheckout", actionSource: "website" },
-  purchase: { name: "Purchase", actionSource: "website" },
+  ctaClick: { name: "Contact", actionSource: "website", enabled: true },
+  botStarted: { name: "Lead", actionSource: "chat", enabled: true },
+  freeJoined: { name: "CompleteRegistration", actionSource: "chat", enabled: true },
+  vipOfferShown: { name: "VipOfferShown", actionSource: "chat", enabled: true },
+  checkoutStarted: { name: "InitiateCheckout", actionSource: "website", enabled: true },
+  purchase: { name: "Purchase", actionSource: "website", enabled: true },
   /** Subscription renewals are stored as revenue but not sent as Purchase by default. */
   sendRenewalsAsPurchase: false,
 } as const;

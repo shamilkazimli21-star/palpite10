@@ -1,6 +1,8 @@
 import Link from "next/link";
 import JoinFreeButton from "@/components/JoinFreeButton";
 import { BUSINESS } from "@/src/config/business";
+import { LANDING, type LandingKey } from "@/src/config/landing";
+import { fill } from "@/src/config/texts";
 import { loadSettings } from "@/src/lib/settings";
 
 // Re-generated at most every 2 minutes so edits made in the admin panel show up here.
@@ -11,6 +13,7 @@ const MARKS = [0, 2, 1, 0, 0, 2, 1, 0, 2, 0];
 
 export default async function Home() {
   await loadSettings();
+  const L = (key: LandingKey) => fill(LANDING[key]);
   return (
     <main className="page">
       <header className="top">
@@ -22,15 +25,13 @@ export default async function Home() {
 
       <section className="hero">
         <div className="hero__copy">
-          <p className="eyebrow">Canal gratuito no Telegram</p>
+          <p className="eyebrow">{L("eyebrow")}</p>
           <h1>
-            Um palpite de futebol por dia. <em>Baseado em dados.</em> De graça.
+            {L("headline1")} <em>{L("headlineHighlight")}</em> {L("headline2")}
           </h1>
-          <p className="lead">
-            Todo dia a gente escolhe um jogo pelos números e manda o palpite, com o mercado indicado, direto no seu Telegram. Sem cadastro e sem cartão.
-          </p>
-          <JoinFreeButton />
-          <p className="micro">Abre uma conversa rápida com o nosso assistente, que te passa o acesso ao canal.</p>
+          <p className="lead">{L("lead")}</p>
+          <JoinFreeButton label={L("cta")} />
+          <p className="micro">{L("micro")}</p>
         </div>
 
         <figure className="slip" aria-label="Ilustração de um volante com dez linhas: a primeira é o palpite gratuito do dia, as outras são do VIP">
@@ -62,35 +63,32 @@ export default async function Home() {
       </section>
 
       <section className="how" aria-labelledby="how-title">
-        <h2 id="how-title">Como funciona</h2>
+        <h2 id="how-title">{L("howTitle")}</h2>
         <ol>
           <li>
-            <b>Toque no botão</b>
-            <span>O Telegram abre numa conversa com o assistente do {BUSINESS.brand}.</span>
+            <b>{L("step1Title")}</b>
+            <span>{L("step1Text")}</span>
           </li>
           <li>
-            <b>Entre no canal gratuito</b>
-            <span>Ele te manda o acesso. Você recebe {BUSINESS.freeChannel.postingFrequency}.</span>
+            <b>{L("step2Title")}</b>
+            <span>{L("step2Text")}</span>
           </li>
           <li>
-            <b>Acompanhe sem compromisso</b>
-            <span>Se um dia quiser a seleção completa, existe o VIP. Se não quiser, o gratuito continua igual.</span>
+            <b>{L("step3Title")}</b>
+            <span>{L("step3Text")}</span>
           </li>
         </ol>
       </section>
 
       <section className="honest" aria-labelledby="honest-title">
-        <h2 id="honest-title">Papo reto</h2>
-        <p>
-          Palpite é análise, não garantia. A gente usa dados para escolher os jogos, mas futebol é futebol: ninguém acerta sempre, e nós também não. Nunca aposte dinheiro que faz falta.
-        </p>
-        <JoinFreeButton label="Quero o palpite grátis de hoje" variant="ghost" />
+        <h2 id="honest-title">{L("honestTitle")}</h2>
+        <p>{L("honestText")}</p>
+        <JoinFreeButton label={L("cta2")} variant="ghost" />
       </section>
 
       <footer className="foot">
         <p>
-          <strong>+18.</strong> Conteúdo informativo sobre futebol para maiores de {BUSINESS.minimumAge} anos. O {BUSINESS.brand} não é casa de apostas, não recebe apostas e não garante resultados nem lucro. Jogue com
-          responsabilidade. Se o jogo virou um problema, procure ajuda: CVV 188 · Jogadores Anônimos.
+          <strong>+18.</strong> {L("footer")}
         </p>
         <p>
           <Link href="/privacidade">Privacidade</Link>

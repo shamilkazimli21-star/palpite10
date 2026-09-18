@@ -85,12 +85,19 @@ Open `https://YOUR-DOMAIN/admin`. Password = `ADMIN_PASSWORD` (or `SETUP_SECRET`
 | Satış Asistanı | Edit the sales prompt blocks and per-stage instructions, see the locked safety rules, **test chat** against the real agent without Telegram |
 | Kurallar ve Puanlama | Invite/offer timing, score threshold, follow-up schedule and texts, lead-score weights |
 | Öğrenme | Approve / reject Coach proposals (with a diff), edit the live playbook, create / start / stop A/B tests, run the learning cycle now |
+| Destek Talepleri | Every support ticket; mark solved, delete (also removes the copied screenshot from your Telegram chat when Telegram allows it) |
+| Hazır Mesajlar | Every fixed message and button label the bot sends without the AI (plans text, audio / image replies, payment confirmed, VIP ended, opt-out…) |
+| Açılış Sayfası | All landing-page copy (headline, buttons, steps, disclaimer); live in ≤ 2 minutes |
+| Entegrasyonlar | Meta Pixel ID, Conversions API token (write-only), test-event code, which Meta event fires at each funnel step (rename / switch off), support username, channel links, AI model; "test connection" button |
+| Veri Yönetimi | Database usage and bulk deletes (never-started visitors, lost leads, old chat texts, logs, closed tickets, used analyses). A single message, a person's whole chat, a reset ("start over") or a full delete of one person are in Konuşmalar → the person → Silme işlemleri |
 | Ödemeler | All Whop payments; link an unmatched payment to a Telegram ID (delivers VIP) |
 | Sistem | Health of every integration, re-register the Telegram webhook, send due follow-ups now, failed webhooks |
 
 How it works: `src/config/*` are the defaults; whatever you save in the panel is stored in Supabase (`app_state` → `settings`) and applied on top at runtime by `src/lib/settings.ts` — live in ~30 seconds, no redeploy. "Varsayılana dön" removes your override. Saved texts containing guarantees / fake urgency are rejected, and the non-negotiable safety rules of the prompt are intentionally not editable.
 
-Files: `app/admin/page.tsx` (UI), `app/api/admin/route.ts` (API + login), `src/lib/settings.ts` (settings layer).
+Files: `app/admin/page.tsx` (UI), `app/api/admin/route.ts` (API + login), `src/lib/settings.ts` (settings layer). Defaults that the panel overrides live in `src/config/` (`business.ts`, `prompts.ts`, `funnel.ts`, `texts.ts`, `landing.ts`) and `src/lib/integrations.ts`.
+
+Still Vercel-only on purpose (needed before the database can be read, or too sensitive): Telegram bot token, Supabase key, DeepSeek key, Whop API key / webhook secret / plan IDs, channel IDs, `ADMIN_PASSWORD`.
 
 ## Support tickets, audio, screenshots (Telegram, owner side in English)
 

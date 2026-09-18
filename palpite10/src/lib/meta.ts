@@ -1,4 +1,5 @@
-import { getEnv, metaEnabled } from "./env";
+import { getEnv } from "./env";
+import { metaConfig } from "./integrations";
 import { sha256 } from "./util";
 import type { Lead } from "./leads";
 
@@ -7,6 +8,8 @@ type MetaEventInput = {
   actionSource: "website" | "chat";
   /** Same ID as the browser pixel event when both fire → Meta deduplicates. */
   eventId: string;
+  /** false = the owner switched this event off in the admin panel. */
+  enabled?: boolean;
   lead: Pick<
     Lead,
     "id" | "visitor_id" | "meta_fbc" | "meta_fbp" | "fbclid" | "client_ip" | "user_agent" | "landing_url" | "created_at"
@@ -34,7 +37,9 @@ export let lastMetaError: { at: string; event: string; detail: string } | null =
  */
 export async function sendMetaEvent(input: MetaEventInput): Promise<boolean> {
   try {
-    if (!metaEnabled()) return false;
+    if (input.enabled === false) return false;
+    const cfg = metaConfig();
+    if (!cfg.pixelId || !cfg.token) return false;
     const env = getEnv();
 
     const userData: Record<string, unknown> = {
@@ -76,15 +81,13 @@ export async function sendMetaEvent(input: MetaEventInput): Promise<boolean> {
     if (Object.keys(custom).length) event.custom_data = custom;
 
     const payload: Record<string, unknown> = { data: [event] };
-    if (env.META_TEST_EVENT_CODE) payload.test_event_code = env.META_TEST_EVENT_CODE;
+    if (cfg.testCode) payload.test_event_code = cfg.testCode;
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8_000);
     try {
       const response = await fetch(
-        `https://graph.facebook.com/${env.META_GRAPH_API_VERSION}/${env.META_PIXEL_ID}/events?access_token=${encodeURIComponent(
-          env.META_ACCESS_TOKEN!,
-        )}`,
+        `https://graph.facebook.com/${cfg.version}/${cfg.pixelId}/events?access_token=${encodeURIComponent(cfg.token)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -105,5 +108,22 @@ export async function sendMetaEvent(input: MetaEventInput): Promise<boolean> {
   } catch (error) {
     console.error("[meta]", input.name, error);
     return false;
+  }
+}
+
+/** Admin panel → "Bağlantıyı test et": sends one harmless event and returns Meta's literal answer. */
+export async function testMetaConnection(): Promise<{ ok: boolean; detail: string }> {
+  const cfg = metaConfig();
+  if (!cfg.pixelId || !cfg.token) return { ok: false, detail: "Pixel ID veya erişim anahtarı (token) eksik." };
+  const payload: Record<string, unknown> = {
+    data: [{ event_name: "PanelConnectionTest", event_time: Math.floor(Date.now() / 1000), event_id: `paneltest_${Date.now()}`, action_source: "system_generated", user_data: { external_id: [sha256("palpite10-panel-test")] } }],
+  };
+  if (cfg.testCode) payload.test_event_code = cfg.testCode;
+  try {
+    const response = await fetch(`https://graph.facebook.com/${cfg.version}/${cfg.pixelId}/events?access_token=${encodeURIComponent(cfg.token)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload), signal: AbortSignal.timeout(10_000) });
+    const body = (await response.text()).slice(0, 500);
+    return { ok: response.ok, detail: body };
+  } catch (error) {
+    return { ok: false, detail: (error as Error).message };
   }
 }

@@ -13,6 +13,8 @@
  * defined by the Whop plan — keep both identical.
  */
 
+import { INTEGRATION_OVERRIDES } from "../lib/integrations";
+
 export type PlanKey = "weekly" | "monthly" | "three_months";
 
 export type VipPlan = {
@@ -169,7 +171,7 @@ export function getPlan(key: string): VipPlan | undefined {
 
 /** SUPPORT_USERNAME=@seu_suporte  or  SUPPORT_URL=https://t.me/seu_suporte (Vercel env vars). */
 export function supportContact(): { label: string; url: string | null } | null {
-  const username = process.env.SUPPORT_USERNAME?.trim().replace(/^@/, "");
+  const username = (INTEGRATION_OVERRIDES.supportUsername || process.env.SUPPORT_USERNAME)?.trim().replace(/^@/, "");
   const url = process.env.SUPPORT_URL?.trim();
   if (username) return { label: `@${username}`, url: `https://t.me/${username}` };
   if (url) return { label: "suporte", url };

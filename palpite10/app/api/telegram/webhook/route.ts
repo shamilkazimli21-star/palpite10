@@ -10,7 +10,8 @@ import { answerCallback, freeChannelKeyboard, isActiveMember, isMemberOf, sendTe
 import { safeEqual } from "@/src/lib/util";
 import { handleAdminCommand } from "@/src/sales/admin-commands";
 import { handleFreeChannelJoined, handleOptOut, handlePlansCommand, handleStart, handleUserMessage, sendToLead, type TelegramUser } from "@/src/sales/engine";
-import { isOptOut, TECHNICAL_FALLBACK_REPLY } from "@/src/sales/guardrails";
+import { isOptOut } from "@/src/sales/guardrails";
+import { tx } from "@/src/config/texts";
 import { handleAdminCallback, handleAdminReply, handleCustomerImage, routeToOpenTicket } from "@/src/sales/support";
 
 export const runtime = "nodejs";
@@ -94,9 +95,9 @@ async function onCallback(q: NonNullable<Update["callback_query"]>, replied: () 
   }
   if (!member) {
     await recordEvent(lead.id, "FREE_JOIN_NOT_FOUND");
-    return answerCallback(q.id, "Ainda não te encontrei no canal. Entre pelo botão “Entrar no canal gratuito” e toque aqui de novo.", true);
+    return answerCallback(q.id, tx("joinNotFound").slice(0, 190), true);
   }
-  await answerCallback(q.id, "Confirmado ✅");
+  await answerCallback(q.id, tx("joinConfirmed").slice(0, 190));
   await replied();
   await withLeadLock(lead.id, async () => handleFreeChannelJoined((await getLeadById(lead.id)) ?? lead, "button"));
 }
@@ -115,14 +116,14 @@ async function onMessage(m: Message, replied: () => Promise<void>): Promise<void
     const isImage = Boolean(m.photo?.length || m.document?.mime_type?.startsWith("image/"));
     const lead = isAudio || isImage ? await getLeadByTelegramId(from.id) : null;
     if (lead && isAudio) {
-      await sendToLead(lead, "Não consigo ouvir áudio por aqui agora 🙏 Pode me mandar por texto? Aí te respondo na hora.", { store: false });
+      await sendToLead(lead, tx("audioReply"), { store: false });
       await recordMessage(lead.id, "event", "A pessoa enviou um áudio. O assistente não ouve áudio e pediu para ela escrever em texto.");
     } else if (lead && isImage) {
       await withLeadLock(lead.id, async () => handleCustomerImage((await getLeadById(lead.id)) ?? lead, m));
     } else if ((isAudio || isImage) && !lead) {
       return handleStart(from, m.chat.id, null, replied);
     } else {
-      await sendText(m.chat.id, "Por enquanto eu só consigo ler mensagens de texto 🙂 Me escreve aqui que eu te respondo.");
+      await sendText(m.chat.id, tx("nonTextReply"));
     }
     return replied();
   }
@@ -152,13 +153,13 @@ async function onMessage(m: Message, replied: () => Promise<void>): Promise<void
       await handlePlansCommand(lead);
     } else if (command === "/canal") {
       await recordMessage(lead.id, "user", text, m.message_id);
-      if (lead.do_not_sell) await sendToLead(lead, `O conteúdo do ${BUSINESS.brand} é apenas para maiores de ${BUSINESS.minimumAge} anos e para quem joga com responsabilidade.`);
+      if (lead.do_not_sell) await sendToLead(lead, tx("doNotSell"));
       else {
         await updateLead(lead.id, { free_channel_invited: true, free_channel_invited_at: lead.free_channel_invited_at ?? new Date().toISOString() });
-        await sendToLead(lead, `O canal gratuito do ${BUSINESS.brand} tem ${BUSINESS.freeChannel.postingFrequency ?? "palpites gratuitos"}. É só tocar aqui 👇`, { keyboard: freeChannelKeyboard() });
+        await sendToLead(lead, tx("canal"), { keyboard: freeChannelKeyboard() });
       }
     } else if (command) {
-      await sendToLead(lead, "Comandos: /planos (ver o VIP) · /canal (canal gratuito) · /parar (não receber mais mensagens). Ou só me escreve normalmente 🙂", { store: false });
+      await sendToLead(lead, tx("help"), { store: false });
     } else {
       // A human is handling this person (screenshot / asked for a human): pass the text on, keep the AI quiet.
       if (lead.needs_human && (await routeToOpenTicket(lead, text, m.message_id))) {
@@ -222,7 +223,7 @@ export async function POST(request: NextRequest) {
     // Out of retries → apologise once instead of going silent, and tell the owner.
     if ((row?.attempts ?? 1) >= 3) {
       const chatId = update.message?.chat.type === "private" ? update.message.chat.id : undefined;
-      if (chatId) await sendText(chatId, TECHNICAL_FALLBACK_REPLY).catch(() => undefined);
+      if (chatId) await sendText(chatId, tx("technicalFallback")).catch(() => undefined);
       if (await allowRequest("alert:telegram-webhook", 3, 3600)) await notifyAdmin(`🚨 Telegram update ${id} failed 3 times: ${message}`);
       return NextResponse.json({ ok: true });
     }

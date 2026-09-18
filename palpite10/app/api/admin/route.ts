@@ -6,7 +6,8 @@ import { envProblems, getEnv, type Env } from "@/src/lib/env";
 import { deepseekJson } from "@/src/lib/deepseek";
 import { getLeadById, getLeadByTelegramId, recordEvent, recordMessage, updateLead, type Lead, type StoredMessage } from "@/src/lib/leads";
 import { allowRequest } from "@/src/lib/rate-limit";
-import { lastMetaError } from "@/src/lib/meta";
+import { metaConfig } from "@/src/lib/integrations";
+import { lastMetaError, testMetaConnection } from "@/src/lib/meta";
 import { loadSettings, resetSection, saveKnowledge, saveSection, SettingsError, settingsView, type SettingsSection } from "@/src/lib/settings";
 import { db } from "@/src/lib/supabase";
 import { registerWebhook, sendText, tg } from "@/src/lib/telegram";
@@ -17,6 +18,7 @@ import { activatePlaybook, DEFAULT_PLAYBOOK, getActivePlaybook, playbookContentS
 import { permissionsFor, runSalesAgent, stageOf } from "@/src/sales/agent";
 import { runFollowups } from "@/src/sales/followups";
 import { linkPaymentToLead } from "@/src/sales/payments";
+import { closeTicketFromPanel, deleteTicket } from "@/src/sales/support";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -195,7 +197,7 @@ async function handle(action: string, body: any): Promise<unknown> {
     case "settings_save":
     case "settings_reset": {
       const section = String(body.section) as SettingsSection;
-      if (!["business", "prompts", "rules"].includes(section)) bad("Bilinmeyen bölüm.");
+      if (!["business", "prompts", "rules", "texts", "landing", "integrations"].includes(section)) bad("Bilinmeyen bölüm.");
       if (action === "settings_save") await saveSection(section, body.value);
       else await resetSection(section);
       await recordEvent(null, action === "settings_save" ? "ADMIN_SETTINGS_SAVED" : "ADMIN_SETTINGS_RESET", { section });
@@ -278,6 +280,109 @@ async function handle(action: string, body: any): Promise<unknown> {
       return { message: await linkPaymentToLead(String(body.payment_id), lead) };
     }
 
+    case "meta_test":
+      await loadSettings(true);
+      return testMetaConnection();
+
+    case "playbook_restore": {
+      const version = int(body.version, 1, 100000, 0);
+      const content = version === 1 ? DEFAULT_PLAYBOOK : (await rows(db().from("playbooks").select("content").eq("version", version)))[0]?.content;
+      const parsed = playbookContentSchema.safeParse(content);
+      if (!parsed.success) bad(`v${version} bulunamadı.`);
+      const saved = await savePlaybook({ content: parsed.data!, status: "active", summary: `Restored from v${version} by the owner.`, createdBy: "admin" });
+      return { version: saved.version };
+    }
+
+    /* ---------------- support tickets ---------------- */
+    case "tickets":
+      return { tickets: await softRows(db().from("support_tickets").select("id, status, reason, last_activity_at, created_at, solved_at, lead_id, leads(first_name, username, telegram_user_id, vip_active)").order("id", { ascending: false }).limit(80)) };
+    case "ticket_action": {
+      const id = int(body.id, 1, 1e12, 0);
+      if (body.op === "solve") (await closeTicketFromPanel(id)) || bad("Talep bulunamadı.");
+      else if (body.op === "delete") await deleteTicket(id);
+      else bad("Bilinmeyen işlem.");
+      return { ok: true };
+    }
+
+    /* ---------------- deleting data ---------------- */
+    case "message_delete": {
+      const { error } = await db().from("messages").delete().eq("id", int(body.id, 1, 1e15, 0));
+      if (error) throw new Error(error.message);
+      return { ok: true };
+    }
+
+    case "lead_wipe": {
+      const id = String(body.id ?? "");
+      const lead = (await getLeadById(id)) ?? bad("Kişi bulunamadı.");
+      const mode = String(body.mode);
+      if (mode === "messages") {
+        await db().from("messages").delete().eq("lead_id", id);
+      } else if (mode === "reset") {
+        for (const table of ["messages", "lead_signals", "sales_events", "checkouts", "conversation_analyses", "conversation_reviews", "experiment_assignments", "support_tickets", "lead_profiles"]) {
+          await db().from(table).delete().eq("lead_id", id); // tables from optional SQL updates may not exist → ignore errors
+        }
+        await db().from("lead_profiles").insert({ lead_id: id });
+        await updateLead(id, {
+          stage: "NEW", score: 0, playbook_version: null, user_turns: 0, pre_free_turns: 0, post_free_turns: 0, eligible_turns: 0,
+          free_channel_invited: false, free_channel_invited_at: null, free_channel_joined: false, free_channel_joined_at: null,
+          vip_offer_count: 0, vip_offer_last_at: null, plans_shown_count: 0, checkout_started: false, checkout_started_at: null, last_checkout_plan: null,
+          opted_out: false, do_not_sell: false, do_not_sell_reason: null, needs_human: false, blocked: false,
+          followup_count: 0, followups_since_reply: 0, followups_sent: [], last_followup_at: null, last_user_message_at: null, last_bot_message_at: null,
+          outcome: lead.paid ? "won" : null, outcome_reason: lead.paid ? lead.outcome_reason : null, closed_at: lead.paid ? lead.closed_at : null, analyzed_at: null,
+        });
+      } else if (mode === "delete") {
+        // Payments are accounting records: they stay, but anonymised. Everything else about the person goes (cascade).
+        await db().from("payments").update({ email: null, raw: null }).eq("lead_id", id);
+        const { error } = await db().from("leads").delete().eq("id", id);
+        if (error) throw new Error(error.message);
+      } else bad("Bilinmeyen işlem.");
+      await recordEvent(null, "ADMIN_DATA_DELETED", { mode, lead: mode === "delete" ? "(deleted)" : id });
+      return { ok: true };
+    }
+
+    case "bulk_delete": {
+      const days = int(body.days, 0, 3650, 30);
+      const cutoff = sinceDays(days);
+      const del = async (q: any): Promise<number> => {
+        const { count, error } = await q;
+        if (error && !/does not exist|schema cache/i.test(error.message)) throw new Error(error.message);
+        return count ?? 0;
+      };
+      const t = (table: string) => db().from(table).delete({ count: "exact" });
+      const kind = String(body.kind);
+      let deleted: Record<string, number> = {};
+      if (kind === "never_started") deleted = { leads: await del(t("leads").is("telegram_user_id", null).lt("created_at", cutoff)) };
+      else if (kind === "lost") deleted = { leads: await del(t("leads").eq("outcome", "lost").eq("paid", false).lt("updated_at", cutoff)) };
+      else if (kind === "messages") deleted = { messages: await del(t("messages").lt("created_at", cutoff)) };
+      else if (kind === "logs")
+        deleted = {
+          sales_events: await del(t("sales_events").lt("created_at", cutoff)), webhook_events: await del(t("webhook_events").lt("created_at", cutoff)),
+          telegram_updates: await del(t("telegram_updates").lt("created_at", cutoff)), checkouts: await del(t("checkouts").lt("created_at", cutoff)),
+        };
+      else if (kind === "tickets") deleted = { support_tickets: await del(t("support_tickets").neq("status", "open").lt("created_at", cutoff)) };
+      else if (kind === "analyses") deleted = { conversation_analyses: await del(t("conversation_analyses").not("batch_id", "is", null).lt("created_at", cutoff)) };
+      else bad("Bilinmeyen işlem.");
+      await recordEvent(null, "ADMIN_BULK_DELETE", { kind, days, deleted });
+      return { deleted };
+    }
+
+    case "row_delete": {
+      const table = String(body.table);
+      const id = body.id as string | number;
+      const spec: Record<string, { column: string; guard?: () => Promise<void> }> = {
+        experiments: { column: "id", guard: async () => { if ((await rows(db().from("experiments").select("status").eq("id", id)))[0]?.status === "running") bad("Çalışan test silinemez. Önce durdurun."); } },
+        playbooks: { column: "version", guard: async () => { if ((await rows(db().from("playbooks").select("status").eq("version", id)))[0]?.status === "active") bad("Yayındaki rehber silinemez."); } },
+        learning_batches: { column: "id" }, conversation_analyses: { column: "lead_id" }, conversation_reviews: { column: "lead_id" },
+        webhook_events: { column: "id" }, telegram_updates: { column: "update_id" }, payments: { column: "whop_payment_id" },
+      };
+      const rule = spec[table] ?? bad("Bu tablo panelden silinemez.");
+      await rule.guard?.();
+      const { error } = await db().from(table).delete().eq(rule.column, id);
+      if (error) throw new Error(error.message);
+      await recordEvent(null, "ADMIN_ROW_DELETED", { table, id });
+      return { ok: true };
+    }
+
     /* ---------------- system ---------------- */
     case "system": {
       const env = getEnv();
@@ -289,7 +394,7 @@ async function handle(action: string, body: any): Promise<unknown> {
       ]);
       return {
         envProblems: envProblems(), lastMetaError, usage, webhook, failedWhop, failedTelegram, appUrl: env.APP_URL, model: env.DEEPSEEK_MODEL,
-        flags: { meta: Boolean(env.META_PIXEL_ID && env.META_ACCESS_TOKEN), metaTestMode: Boolean(env.META_TEST_EVENT_CODE), whopApiKey: Boolean(env.WHOP_API_KEY), vipChannelId: Boolean(env.TELEGRAM_VIP_CHANNEL_ID), adminChat: Boolean(env.TELEGRAM_ADMIN_CHAT_ID), support: Boolean(env.SUPPORT_USERNAME || env.SUPPORT_URL), ownPassword: Boolean(process.env.ADMIN_PASSWORD?.trim()), autoApprove: env.PLAYBOOK_AUTO_APPROVE },
+        flags: { meta: Boolean(metaConfig().pixelId && metaConfig().token), metaTestMode: Boolean(metaConfig().testCode), whopApiKey: Boolean(env.WHOP_API_KEY), vipChannelId: Boolean(env.TELEGRAM_VIP_CHANNEL_ID), adminChat: Boolean(env.TELEGRAM_ADMIN_CHAT_ID), support: Boolean(settingsView().integrations.supportUsername || env.SUPPORT_USERNAME || env.SUPPORT_URL), ownPassword: Boolean(process.env.ADMIN_PASSWORD?.trim()), autoApprove: env.PLAYBOOK_AUTO_APPROVE },
       };
     }
     case "purge_now":

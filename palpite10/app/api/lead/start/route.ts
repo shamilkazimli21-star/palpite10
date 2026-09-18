@@ -1,3 +1,4 @@
+import { loadSettings } from "@/src/lib/settings";
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { META_EVENTS } from "@/src/config/funnel";
@@ -48,6 +49,7 @@ export async function POST(request: NextRequest) {
   if (IS_ROBOT.test(userAgent ?? "")) return NextResponse.json({ telegramUrl: botUrl(), eventId: null });
 
   try {
+    await loadSettings();
     // Same visitor clicking again → same lead, same event id (Meta de-duplicates).
     let lead = body.visitorId ? await findRecentLeadByVisitor(body.visitorId) : null;
     if (!lead) {
@@ -55,7 +57,7 @@ export async function POST(request: NextRequest) {
       await recordEvent(lead.id, "LANDING_CTA_CLICKED", { campaign: lead.campaign, ad: lead.ad });
       await sendMetaEvent({ ...META_EVENTS.ctaClick, eventId: `click_${lead.id}`, lead });
     }
-    return NextResponse.json({ telegramUrl: botUrl(lead.start_token), eventId: `click_${lead.id}` });
+    return NextResponse.json({ telegramUrl: botUrl(lead.start_token), eventId: META_EVENTS.ctaClick.enabled ? `click_${lead.id}` : null, eventName: META_EVENTS.ctaClick.name });
   } catch (error) {
     // The database being down must never stop someone from reaching the bot.
     console.error("[lead/start]", error);

@@ -23,7 +23,7 @@ import { hoursSince, sleep } from "../lib/util";
 import { assignExperiments, getLiveInstructions } from "../learning/experiments";
 import { getActivePlaybook } from "../learning/playbook";
 import { permissionsFor, runSalesAgent, stageOf, type AgentOutput, type NextAction } from "./agent";
-import { TECHNICAL_FALLBACK_REPLY } from "./guardrails";
+import { TEXTS, tx } from "../config/texts";
 import { openTicket } from "./support";
 
 export type TelegramUser = { id: number; first_name?: string; username?: string; language_code?: string };
@@ -56,7 +56,7 @@ export async function sendToLead(
 
 function plansText(): string {
   const lines = BUSINESS.plans.map((p) => `• ${p.name} — ${p.priceLabel}`);
-  return `Planos do ${BUSINESS.vip.name}:\n\n${lines.join("\n")}\n\nTodos dão o mesmo acesso ao VIP — muda só o período. São assinaturas: renovam automaticamente e você pode cancelar quando quiser pela Whop.\n\nToque em um plano para abrir o pagamento seguro 👇`;
+  return `${tx("plansIntro")}\n\n${lines.join("\n")}\n\n${tx("plansFooter")}`;
 }
 
 export async function presentPlans(lead: Lead, reason: "offer_vip" | "show_plans" | "command" | "followup"): Promise<void> {
@@ -148,7 +148,7 @@ export async function runTurn(leadId: string, options: TurnOptions): Promise<voi
     });
   } catch (error) {
     console.error("[engine] agent failed:", error);
-    await sendToLead(lead, TECHNICAL_FALLBACK_REPLY, { store: false });
+    await sendToLead(lead, tx("technicalFallback"), { store: false });
     await options.onReplied?.();
     await recordEvent(lead.id, "AGENT_ERROR", { message: (error as Error).message.slice(0, 300) });
     await notifyAdmin(`🚨 Sales agent error for ${lead.first_name ?? lead.id}: ${(error as Error).message.slice(0, 300)}`);
@@ -215,8 +215,8 @@ export async function runTurn(leadId: string, options: TurnOptions): Promise<voi
   if (action === "handoff_human") {
     const support = supportContact();
     if (support) {
-      await sendToLead(lead, `Pra falar com alguém da equipe ${BUSINESS.brand}: ${support.label}`, {
-        keyboard: support.url ? { inline_keyboard: [[{ text: "💬 Falar com a equipe", url: support.url }]] } : undefined,
+      await sendToLead(lead, tx("handoffContact", { support: support.label }), {
+        keyboard: support.url ? { inline_keyboard: [[{ text: TEXTS.btnSupport, url: support.url }]] } : undefined,
       });
     }
   }
@@ -234,7 +234,7 @@ export async function runTurn(leadId: string, options: TurnOptions): Promise<voi
   /* ---- 6. safety net: the free invite must not be forgotten ---------- */
   const p = permissionsFor(lead);
   if (p.inviteDue && !["invite_free", "stop_selling", "handoff_human"].includes(action) && !output.risk_flag) {
-    const text = `Aliás, a gente tem um canal gratuito do ${BUSINESS.brand} no Telegram. Quer dar uma olhada? É só tocar aqui 👇`;
+    const text = tx("freeInviteFallback");
     lead = await updateLead(lead.id, { free_channel_invited: true, free_channel_invited_at: new Date().toISOString(), stage: "FREE_INVITED" });
     await sendToLead(lead, text, { keyboard: freeChannelKeyboard() });
     await recordEvent(lead.id, "FREE_INVITE_SHOWN", { by: "backend" });
@@ -293,7 +293,7 @@ export async function handleStart(from: TelegramUser, chatId: number, token: str
   await recordMessage(lead.id, "event", firstStart ? "A pessoa abriu o bot pela primeira vez (/start)." : "A pessoa enviou /start de novo.");
 
   if (lead.vip_active) {
-    await sendToLead(lead, `Você já é membro do ${BUSINESS.vip.name} 👑 Se precisar de ajuda com o acesso, é só me escrever.`);
+    await sendToLead(lead, tx("alreadyVipStart"));
     await onReplied?.();
     return;
   }
@@ -355,16 +355,16 @@ export async function handleFreeChannelJoined(lead: Lead, via: "button" | "auto"
 export async function handleOptOut(lead: Lead): Promise<void> {
   await updateLead(lead.id, { opted_out: true });
   await recordEvent(lead.id, "OPTED_OUT");
-  await sendToLead(lead, "Pronto, não te mando mais mensagens por aqui. Se mudar de ideia, é só enviar /start. Valeu! 👋");
+  await sendToLead(lead, tx("optOutDone"));
 }
 
 export async function handlePlansCommand(lead: Lead): Promise<void> {
   if (lead.vip_active) {
-    await sendToLead(lead, `Você já é membro do ${BUSINESS.vip.name} 👑`);
+    await sendToLead(lead, tx("alreadyVip"));
     return;
   }
   if (lead.do_not_sell) {
-    await sendToLead(lead, `No momento não consigo te oferecer o VIP por aqui. O conteúdo é apenas para maiores de ${BUSINESS.minimumAge} anos e para quem joga com responsabilidade.`);
+    await sendToLead(lead, tx("doNotSell"));
     return;
   }
   await presentPlans(lead, "command");

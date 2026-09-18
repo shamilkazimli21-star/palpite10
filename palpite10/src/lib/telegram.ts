@@ -1,5 +1,7 @@
 import { getEnv } from "./env";
 import { BUSINESS } from "../config/business";
+import { TEXTS } from "../config/texts";
+import { INTEGRATION_OVERRIDES } from "./integrations";
 import { truncate } from "./util";
 
 export class TelegramError extends Error {
@@ -115,8 +117,8 @@ export function freeChannelKeyboard(): InlineKeyboard {
   const env = getEnv();
   return {
     inline_keyboard: [
-      [{ text: "📲 Entrar no canal gratuito", url: env.TELEGRAM_FREE_CHANNEL_URL }],
-      [{ text: "✅ Já entrei", callback_data: "check_free" }],
+      [{ text: TEXTS.btnJoinFree, url: INTEGRATION_OVERRIDES.freeChannelUrl || env.TELEGRAM_FREE_CHANNEL_URL }],
+      [{ text: TEXTS.btnJoined, callback_data: "check_free" }],
     ],
   };
 }

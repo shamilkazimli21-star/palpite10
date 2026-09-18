@@ -3,6 +3,8 @@
 import { useEffect, useState, type MouseEvent } from "react";
 import { readCookie, visitorId } from "./MetaPixel";
 
+const STANDARD = new Set(["Lead", "CompleteRegistration", "Contact", "ViewContent", "InitiateCheckout", "AddToCart", "Purchase", "Subscribe", "StartTrial", "SubmitApplication", "Schedule", "Search", "AddPaymentInfo", "AddToWishlist", "CustomizeProduct", "Donate", "FindLocation"]);
+
 export default function JoinFreeButton({ label = "Abrir no Telegram", variant = "primary" }: { label?: string; variant?: "primary" | "ghost" }) {
   const [busy, setBusy] = useState(false);
   // Works without JavaScript too: the server route creates the lead and redirects.
@@ -35,10 +37,10 @@ export default function JoinFreeButton({ label = "Abrir no Telegram", variant = 
           landingUrl: window.location.href.slice(0, 1000),
         }),
       });
-      const data = (await response.json()) as { telegramUrl?: string; eventId?: string | null };
+      const data = (await response.json()) as { telegramUrl?: string; eventId?: string | null; eventName?: string };
       if (!data.telegramUrl) throw new Error("no url");
       // Same event id as the server-side event → Meta counts ONE click, not two. ("Lead" is sent by the server when the person actually starts the bot.)
-      if (data.eventId && window.fbq) window.fbq("track", "Contact", { content_name: "telegram_cta" }, { eventID: data.eventId });
+      if (data.eventId && window.fbq) window.fbq(/^[A-Z][A-Za-z]+$/.test(data.eventName ?? "") && STANDARD.has(data.eventName!) ? "track" : "trackCustom", data.eventName ?? "Contact", { content_name: "telegram_cta" }, { eventID: data.eventId });
       window.setTimeout(() => {
         window.location.href = data.telegramUrl!;
         window.setTimeout(() => setBusy(false), 2500);

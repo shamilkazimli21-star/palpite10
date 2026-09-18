@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import MetaPixel from "@/components/MetaPixel";
+import { metaConfig } from "@/src/lib/integrations";
+import { loadSettings } from "@/src/lib/settings";
 import "./globals.css";
 
 const appUrl = process.env.APP_URL ?? (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : undefined);
@@ -15,12 +17,22 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = { themeColor: "#0b3d24", width: "device-width", initialScale: 1 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+/** Pixel ID: admin panel (Entegrasyonlar) first, then the Vercel variable. */
+async function pixelId(): Promise<string | undefined> {
+  try {
+    await loadSettings();
+    return metaConfig().pixelId;
+  } catch {
+    return process.env.META_PIXEL_ID;
+  }
+}
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="pt-BR">
       <body>
         {children}
-        <MetaPixel pixelId={process.env.META_PIXEL_ID} />
+        <MetaPixel pixelId={await pixelId()} />
       </body>
     </html>
   );

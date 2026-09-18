@@ -1,5 +1,6 @@
 import { SUPPORT } from "../config/funnel";
 import { supportContact } from "../config/business";
+import { tx } from "../config/texts";
 import { deepseekJson } from "../lib/deepseek";
 import { getEnv } from "../lib/env";
 import { getLeadById, getRecentMessages, recordEvent, recordMessage, updateLead, type Lead } from "../lib/leads";
@@ -141,7 +142,7 @@ export async function routeToOpenTicket(lead: Lead, text: string, telegramMessag
   await toAdmin(ticket.id, `💬 ${who(lead)} · ticket #${ticket.id}\n\n“${truncate(text, 1500)}”${english && english !== text ? `\nEN: ${truncate(english, 1500)}` : ""}\n\nSolved? Tap ✅ and the AI continues. Otherwise Reply.`, "reply", buttons(ticket.id));
   // Do not leave the person staring at silence — but at most one acknowledgement per hour.
   if (lead.chat_id && hoursSince(lead.last_bot_message_at) >= 1) {
-    await sendText(lead.chat_id, "Recebido 👍 A equipe já está vendo e te responde por aqui mesmo.").then(
+    await sendText(lead.chat_id, tx("ticketAck")).then(
       () => updateLead(lead.id, { last_bot_message_at: new Date().toISOString() }),
       () => undefined,
     );
@@ -156,8 +157,8 @@ export async function handleCustomerImage(lead: Lead, m: { chat: { id: number };
   const ticket = await openTicket(lead, { reason: "screenshot", text: m.caption, copyFrom: { chatId: m.chat.id, messageId: m.message_id } });
   const support = supportContact();
   const reply = ticket
-    ? "Recebi sua imagem 👍 Eu não consigo ver imagens por aqui, então já encaminhei pra equipe. Eles te respondem por aqui mesmo."
-    : `Eu não consigo ver imagens por aqui 😕 Pode me descrever em texto o que aparece?${support ? ` Se preferir, fale com a equipe: ${support.label}` : ""}`;
+    ? tx("imageReceived")
+    : `${tx("imageNoTeam")}${support ? ` ${tx("handoffContact", { support: support.label })}` : ""}`;
   if (lead.chat_id) {
     await sendText(lead.chat_id, reply);
     await recordMessage(lead.id, "assistant", reply);
@@ -265,4 +266,27 @@ export async function handleAdminReply(m: { text?: string; reply_to_message?: { 
   await recordEvent(lead.id, "SUPPORT_REPLY_SENT", { ticket: ticket.id });
   await toAdmin(ticket.id, `📤 Sent to ${who(lead)}:\n\n“${truncate(final, 1500)}”\n\nTheir answer will arrive here. When it is fixed, tap ✅ Solved and the AI continues.`, "reply", buttons(ticket.id));
   return true;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Admin panel                                                        */
+/* ------------------------------------------------------------------ */
+
+export async function closeTicketFromPanel(id: number): Promise<boolean> {
+  const found = await ticketWithLead(id);
+  if (!found) return false;
+  if (found.ticket.status === "open") await release(found.ticket, "solved");
+  return true;
+}
+
+/** Deletes the ticket and (best effort) the related messages — including the copied screenshot — from the owner's Telegram chat. */
+export async function deleteTicket(id: number): Promise<void> {
+  const chat = adminChat();
+  const { data } = await db().from("support_admin_messages").select("message_id").eq("ticket_id", id);
+  for (const row of data ?? []) {
+    if (chat) await tg("deleteMessage", { chat_id: chat, message_id: row.message_id }).catch(() => undefined); // Telegram only allows this for ~48h
+  }
+  const found = await ticketWithLead(id);
+  if (found?.ticket.status === "open") await release(found.ticket, "solved");
+  await db().from("support_tickets").delete().eq("id", id);
 }

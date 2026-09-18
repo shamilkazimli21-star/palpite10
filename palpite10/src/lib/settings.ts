@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { BUSINESS } from "../config/business";
-import { FOLLOWUPS, FOLLOWUP_RULES, FUNNEL, LEARNING, RETENTION, SIGNALS, SUPPORT } from "../config/funnel";
+import { FOLLOWUPS, FOLLOWUP_RULES, FUNNEL, LEARNING, META_EVENTS, RETENTION, SIGNALS, SUPPORT } from "../config/funnel";
+import { LANDING } from "../config/landing";
+import { TEXTS } from "../config/texts";
+import { INTEGRATION_OVERRIDES } from "./integrations";
 import { lockedPromptPart, PROMPT_BLOCKS, salesAgentStaticPrompt, STAGE_INSTRUCTIONS, SUPPORT_KB, type KnowledgeEntry, type PromptBlockKey } from "../config/prompts";
 import { findForbiddenClaims } from "../sales/guardrails";
 import { db } from "./supabase";
@@ -124,7 +127,25 @@ const D = {
   followupRules: Object.fromEntries(allFollowupRules().map((r) => [r.key, { afterSilentHours: r.afterSilentHours, goal: r.goal, fallback: r.fallback }])),
 };
 
+const EVENT_KEYS = ["ctaClick", "botStarted", "freeJoined", "vipOfferShown", "checkoutStarted", "purchase"] as const;
+type EventKey = (typeof EVENT_KEYS)[number];
+const metaEvents = META_EVENTS as unknown as Record<EventKey, { name: string; actionSource: string; enabled: boolean }> & { sendRenewalsAsPurchase: boolean };
+const D_EVENTS = Object.fromEntries(EVENT_KEYS.map((k) => [k, { name: metaEvents[k].name, enabled: true }])) as Record<EventKey, { name: string; enabled: boolean }>;
+const D_TEXTS = { ...TEXTS } as Dict<string>;
+const D_LANDING = { ...LANDING } as Dict<string>;
+/** Landing fields that may be left empty (the line simply disappears). */
+const LANDING_OPTIONAL = new Set(["eyebrow", "headlineHighlight", "headline2", "micro"]);
+
+export type StoredIntegrations = {
+  metaPixelId?: string; metaAccessToken?: string; metaTestEventCode?: string; supportUsername?: string;
+  freeChannelUrl?: string; vipChannelUrl?: string; deepseekModel?: string; deepseekCoachModel?: string;
+  events?: Partial<Record<EventKey, { name: string; enabled: boolean }>>; sendRenewalsAsPurchase?: boolean;
+};
+
 export type StoredSettings = {
+  texts?: Dict<string>;
+  landing?: Dict<string>;
+  integrations?: StoredIntegrations;
   business?: unknown;
   prompts?: { blocks?: Dict<string>; stages?: Dict<string> };
   rules?: { funnel?: Dict<number>; followups?: Dict<number>; learning?: Dict<number>; retention?: Dict<number>; support?: Dict<number>; weights?: Dict<number>; followupRules?: Dict<{ afterSilentHours: number; goal: string; fallback: string }> };
@@ -156,6 +177,25 @@ function applyStored(s: StoredSettings): void {
     else console.error("[settings] stored business info is invalid, using defaults:", parsed.error.issues[0]);
   }
 
+  for (const k of Object.keys(D_TEXTS)) (TEXTS as Dict<string>)[k] = text(s.texts?.[k], 1500) ?? D_TEXTS[k]!;
+  for (const k of Object.keys(D_LANDING)) (LANDING as Dict<string>)[k] = text(s.landing?.[k], 1200, LANDING_OPTIONAL.has(k)) ?? D_LANDING[k]!;
+
+  const it = s.integrations ?? {};
+  const o = INTEGRATION_OVERRIDES;
+  o.metaPixelId = it.metaPixelId || undefined;
+  o.metaAccessToken = it.metaAccessToken || undefined;
+  o.metaTestEventCode = typeof it.metaTestEventCode === "string" ? it.metaTestEventCode : undefined;
+  o.supportUsername = it.supportUsername || undefined;
+  o.freeChannelUrl = it.freeChannelUrl || undefined;
+  o.vipChannelUrl = it.vipChannelUrl || undefined;
+  o.deepseekModel = it.deepseekModel || undefined;
+  o.deepseekCoachModel = it.deepseekCoachModel || undefined;
+  for (const k of EVENT_KEYS) {
+    metaEvents[k].name = it.events?.[k]?.name && EVENT_NAME.test(it.events[k]!.name) ? it.events[k]!.name : D_EVENTS[k].name;
+    metaEvents[k].enabled = it.events?.[k]?.enabled !== false;
+  }
+  metaEvents.sendRenewalsAsPurchase = it.sendRenewalsAsPurchase === true;
+
   for (const k of Object.keys(D.blocks) as PromptBlockKey[]) PROMPT_BLOCKS[k] = text(s.prompts?.blocks?.[k], 8000, k === "extra") ?? D.blocks[k];
   for (const k of Object.keys(D.stages)) (STAGE_INSTRUCTIONS as Dict<string>)[k] = text(s.prompts?.stages?.[k], 2500) ?? D.stages[k]!;
 
@@ -176,6 +216,7 @@ function applyStored(s: StoredSettings): void {
 /*  Load / save                                                        */
 /* ------------------------------------------------------------------ */
 
+const EVENT_NAME = /^[A-Za-z][A-Za-z0-9_]{1,39}$/;
 const TTL_MS = 20_000;
 const KB_KEY = "support_kb";
 
@@ -262,6 +303,49 @@ export function validateSection(section: SettingsSection, value: unknown): unkno
     }
     return { blocks, stages };
   }
+  if (section === "texts" || section === "landing") {
+    const defaults = section === "texts" ? D_TEXTS : D_LANDING;
+    const v = (value ?? {}) as Dict<string>;
+    const out: Dict<string> = {};
+    for (const k of Object.keys(defaults)) {
+      const optional = section === "landing" && LANDING_OPTIONAL.has(k);
+      const t = text(v[k], section === "texts" ? 1500 : 1200, optional);
+      if (t === undefined) throw new SettingsError([`“${k}” boş olamaz ve çok uzun olamaz.`]);
+      if (k.startsWith("btn") && t.length > 40) throw new SettingsError([`“${k}”: düğme yazısı en fazla 40 karakter olabilir.`]);
+      out[k] = t;
+    }
+    const problems = forbiddenIn(Object.values(out));
+    if (problems.length) throw new SettingsError(problems);
+    return out;
+  }
+  if (section === "integrations") {
+    const v = (value ?? {}) as StoredIntegrations;
+    const problems: string[] = [];
+    const field = (raw: unknown, pattern: RegExp, label: string): string => {
+      const t = typeof raw === "string" ? raw.trim() : "";
+      if (t && !pattern.test(t)) problems.push(`${label} geçersiz görünüyor.`);
+      return t;
+    };
+    const out: StoredIntegrations = {
+      metaPixelId: field(v.metaPixelId, /^\d{5,25}$/, "Pixel ID (yalnızca rakam)"),
+      metaAccessToken: field(v.metaAccessToken, /^(__CLEAR__|[A-Za-z0-9_|-]{30,600})$/, "Conversions API erişim anahtarı"),
+      metaTestEventCode: field(v.metaTestEventCode, /^[A-Za-z0-9_-]{3,40}$/, "Test olay kodu"),
+      supportUsername: field(v.supportUsername, /^@?[A-Za-z0-9_]{4,32}$/, "Destek kullanıcı adı"),
+      freeChannelUrl: field(v.freeChannelUrl, /^https:\/\/t\.me\/\S{3,100}$/, "Ücretsiz kanal linki (https://t.me/… olmalı)"),
+      vipChannelUrl: field(v.vipChannelUrl, /^https:\/\/t\.me\/\S{3,100}$/, "VIP kanal linki (https://t.me/… olmalı)"),
+      deepseekModel: field(v.deepseekModel, /^[A-Za-z0-9._-]{3,60}$/, "Yapay zekâ modeli"),
+      deepseekCoachModel: field(v.deepseekCoachModel, /^[A-Za-z0-9._-]{3,60}$/, "Koç modeli"),
+      events: {},
+      sendRenewalsAsPurchase: v.sendRenewalsAsPurchase === true,
+    };
+    for (const k of EVENT_KEYS) {
+      const name = typeof v.events?.[k]?.name === "string" ? v.events[k]!.name.trim() : D_EVENTS[k].name;
+      if (!EVENT_NAME.test(name)) problems.push(`Olay adı geçersiz: “${name}”. Yalnızca harf, rakam ve alt çizgi; harfle başlamalı.`);
+      out.events![k] = { name, enabled: v.events?.[k]?.enabled !== false };
+    }
+    if (problems.length) throw new SettingsError(problems);
+    return out;
+  }
   // rules
   const v = (value ?? {}) as NonNullable<StoredSettings["rules"]>;
   const out: NonNullable<StoredSettings["rules"]> = { funnel: {}, followups: {}, learning: {}, retention: {}, support: {}, weights: {}, followupRules: {} };
@@ -291,6 +375,12 @@ async function writeStored(stored: StoredSettings): Promise<void> {
 export async function saveSection(section: SettingsSection, value: unknown): Promise<void> {
   const clean = validateSection(section, value);
   const stored = await readStored();
+  if (section === "integrations") {
+    // The token is never sent back to the browser: empty = keep the stored one, "__CLEAR__" = remove it.
+    const next = clean as StoredIntegrations;
+    if (next.metaAccessToken === "__CLEAR__") next.metaAccessToken = "";
+    else if (!next.metaAccessToken) next.metaAccessToken = stored.integrations?.metaAccessToken ?? "";
+  }
   await writeStored({ ...stored, [section]: clean });
 }
 
@@ -316,10 +406,34 @@ export function settingsView() {
   };
   return {
     ...live,
-    defaults: { business: D.business, prompts: { blocks: D.blocks, stages: D.stages }, rules: { ...D.rules, weights: D.weights, followupRules: D.followupRules } },
+    defaults: { texts: D_TEXTS, landing: D_LANDING, business: D.business, prompts: { blocks: D.blocks, stages: D.stages }, rules: { ...D.rules, weights: D.weights, followupRules: D.followupRules } },
     specs: RULE_SPECS,
     signals: signalRows.map((s) => ({ key: s.key, source: s.source, description: s.description })),
     followupBuckets: Object.fromEntries(Object.entries(FOLLOWUP_RULES).map(([bucket, rules]) => [bucket, rules.map((r) => ({ key: r.key, keyboard: r.keyboard }))])),
+    texts: { ...TEXTS } as Dict<string>,
+    landing: { ...LANDING } as Dict<string>,
+    integrations: {
+      metaPixelId: INTEGRATION_OVERRIDES.metaPixelId ?? "",
+      metaAccessToken: "", // never leaves the server
+      metaTestEventCode: INTEGRATION_OVERRIDES.metaTestEventCode ?? "",
+      supportUsername: INTEGRATION_OVERRIDES.supportUsername ?? "",
+      freeChannelUrl: INTEGRATION_OVERRIDES.freeChannelUrl ?? "",
+      vipChannelUrl: INTEGRATION_OVERRIDES.vipChannelUrl ?? "",
+      deepseekModel: INTEGRATION_OVERRIDES.deepseekModel ?? "",
+      deepseekCoachModel: INTEGRATION_OVERRIDES.deepseekCoachModel ?? "",
+      events: Object.fromEntries(EVENT_KEYS.map((k) => [k, { name: metaEvents[k].name, enabled: metaEvents[k].enabled }])),
+      sendRenewalsAsPurchase: metaEvents.sendRenewalsAsPurchase,
+    },
+    integrationsInfo: {
+      tokenInPanel: INTEGRATION_OVERRIDES.metaAccessToken ? `…${INTEGRATION_OVERRIDES.metaAccessToken.slice(-4)}` : null,
+      env: {
+        pixel: Boolean(process.env.META_PIXEL_ID?.trim()), token: Boolean(process.env.META_ACCESS_TOKEN?.trim()), testCode: process.env.META_TEST_EVENT_CODE?.trim() || null,
+        support: process.env.SUPPORT_USERNAME?.trim() || null, model: process.env.DEEPSEEK_MODEL?.trim() || "deepseek-flash", coachModel: process.env.DEEPSEEK_COACH_MODEL?.trim() || null,
+        freeUrl: process.env.TELEGRAM_FREE_CHANNEL_URL?.trim() || null, vipUrl: process.env.TELEGRAM_VIP_CHANNEL_URL?.trim() || null,
+      },
+      eventDefaults: D_EVENTS,
+      actionSources: Object.fromEntries(EVENT_KEYS.map((k) => [k, metaEvents[k].actionSource])),
+    },
     knowledge: SUPPORT_KB.map((k) => ({ ...k })),
     lockedPrompt: lockedPromptPart(),
     fullPrompt: salesAgentStaticPrompt(),

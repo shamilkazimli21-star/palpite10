@@ -106,6 +106,7 @@ const CSS = `
 .a-msg{max-width:82%;padding:8px 12px;border-radius:14px;white-space:pre-wrap;word-break:break-word;font-size:14.5px}
 .a-msg.user{align-self:flex-start;background:#fff;border:1px solid #dfe7e2}.a-msg.assistant{align-self:flex-end;background:#d9f2e2}.a-msg.event{align-self:center;background:none;color:#7a8a81;font-size:12.5px;text-align:center;padding:2px}
 .a-msg small{display:block;color:#7a8a81;font-size:11.5px;margin-top:3px}.a-msg em{display:block;font-style:normal;color:#1f3fbf;border-top:1px dashed #b9c5be;margin-top:5px;padding-top:4px}
+.a-del{all:unset;cursor:pointer;float:right;margin-left:10px;opacity:.3;font-size:13px}.a-del:hover{opacity:1}
 .a-stars button{all:unset;cursor:pointer;font-size:30px;line-height:1;color:#cfd9d3;padding:0 3px}.a-stars button.on{color:#f0a800}
 .a-toast{position:fixed;right:16px;bottom:16px;z-index:50;max-width:min(440px,92vw);padding:12px 16px;border-radius:12px;background:#0f1a14;color:#fff;white-space:pre-wrap;box-shadow:0 8px 30px #0003;font-size:14px}.a-toast.bad{background:#a3241d}
 .a-login{min-height:100vh;display:grid;place-items:center;padding:20px;background:#f7faf8}.a-login form,.a-login .a-card{width:min(400px,100%)}
@@ -214,7 +215,7 @@ function Overview({ go }: { go: (tab: string) => void }) {
         <div className="a-warn">
           <b>Sizi bekleyen işler:</b>
           <div className="a-row" style={{ marginTop: 8 }}>
-            {d.alerts.tickets > 0 && <Pill tone="amber">{d.alerts.tickets} destek talebi açık — Telegram'da bottan gelen mesajdaki “Reply” düğmesiyle cevaplayın</Pill>}
+            {d.alerts.tickets > 0 && <Btn small kind="ghost" onClick={() => go("destek")}>{d.alerts.tickets} destek talebi açık (Telegram'dan “Reply” ile cevaplayın)</Btn>}
             {d.alerts.needsHuman > 0 && <Btn small kind="ghost" onClick={() => go("konusmalar")}>{d.alerts.needsHuman} kişi insan desteği istiyor</Btn>}
             {d.alerts.unlinked > 0 && <Btn small kind="ghost" onClick={() => go("odemeler")}>{d.alerts.unlinked} ödeme kişiye bağlanamadı</Btn>}
             {d.alerts.proposals > 0 && <Btn small kind="ghost" onClick={() => go("ogrenme")}>{d.alerts.proposals} yeni satış önerisi onayınızı bekliyor</Btn>}
@@ -325,6 +326,7 @@ function LeadDetail({ id, back, changed }: { id: string; back: () => void; chang
         <div className="a-chat">
           {d.messages.map((m: Any) => (
             <div key={m.id} className={`a-msg ${m.role}`}>
+              <button className="a-del" title="Bu mesajı veritabanından sil" onClick={() => window.confirm("Bu mesaj veritabanından silinsin mi? (Müşterinin Telegram'ından silinmez.)") && run(`m${m.id}`, async () => { await api("message_delete", { id: m.id }); await load(); })}>🗑</button>
               {m.content}
               {tr[m.id] && <em>{tr[m.id]}</em>}
               {m.role !== "event" && <small>{m.role === "user" ? "Müşteri" : "Bot"} · {when(m.created_at)}</small>}
@@ -370,6 +372,14 @@ function LeadDetail({ id, back, changed }: { id: string; back: () => void; chang
         </Card>
       </div>
 
+      <Card title="Silme işlemleri" desc="Geri alınamaz. Tek bir mesajı silmek için konuşmadaki mesajın sağ üstündeki 🗑 simgesine basın. Buradan silinenler yalnızca SİZİN veritabanınızdan silinir; müşterinin Telegram'ındaki sohbet olduğu gibi kalır.">
+        <div className="a-row">
+          <Btn kind="danger" onClick={() => window.confirm("Bu kişinin TÜM mesaj metinleri silinsin mi? Profil, puan, ödeme ve analiz kalır.") && run("w1", async () => { await api("lead_wipe", { id, mode: "messages" }); await load(); }, "Mesajlar silindi.")} busy={busy === "w1"}>Tüm mesajlarını sil</Btn>
+          <Btn kind="danger" onClick={() => window.confirm("Kişi SIFIRLANSIN mı? Konuşma, puan, profil, analiz, puanınız ve takip geçmişi silinir; kişi botla en baştan başlar. Ödeme / VIP bilgisi korunur. (Kendi hesabınızla test etmek için idealdir.)") && run("w2", async () => { await api("lead_wipe", { id, mode: "reset" }); await load(); changed(); }, "Kişi sıfırlandı.")} busy={busy === "w2"}>Kişiyi sıfırla (baştan başlasın)</Btn>
+          <Btn kind="danger" onClick={() => window.confirm(`${L.first_name ?? "Bu kişi"} veritabanından TAMAMEN silinsin mi?\n\nKonuşma, profil, puan, analiz, destek talepleri silinir. Ödeme kayıtları muhasebe için kalır ama kişiden ayrılır ve e-postası silinir.${L.vip_active ? "\n\nDİKKAT: Bu kişi şu an VIP. Silmek onu VIP kanalından ÇIKARMAZ ve aboneliği bittiğinde otomatik çıkarma da çalışmaz." : ""}`) && run("w3", async () => { await api("lead_wipe", { id, mode: "delete" }); changed(); back(); }, "Kişi tamamen silindi.")} busy={busy === "w3"}>Kişiyi tamamen sil</Btn>
+        </div>
+      </Card>
+
       <Card title="Bot adına mesaj gönder" desc="Yazdığınız metin müşteriye AYNEN gider (çevrilmez). Müşteriler Brezilyalı olduğu için Portekizce yazın.">
         <Txt rows={3} value={say} onChange={setSay} placeholder="Oi! Aqui é da equipe PALPITE10…" />
         <div style={{ marginTop: 10 }}><Btn onClick={() => act("say", "Mesaj gönderildi.", { text: say }).then(() => setSay(""))} busy={busy === "say"} disabled={!say.trim()}>Gönder</Btn></div>
@@ -378,12 +388,12 @@ function LeadDetail({ id, back, changed }: { id: string; back: () => void; chang
   );
 }
 
-function Conversations() {
+function Conversations({ initial }: { initial?: string | null }) {
   const [filter, setFilter] = useState("all");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
   const [d, setD] = useState<Any>(null);
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string | null>(initial ?? null);
   const [, run] = useBusy();
   const load = useCallback(() => run("load", async () => setD(await api("leads", { filter, q, page }))), [filter, q, page, run]);
   useEffect(() => { const t = setTimeout(load, q ? 350 : 0); return () => clearTimeout(t); }, [load, q]);
@@ -423,7 +433,7 @@ function Conversations() {
 /* =====================================================================
  *  Ayar sekmeleri için ortak yardımcı
  * ===================================================================== */
-function useSection(section: "business" | "prompts" | "rules") {
+function useSection(section: "business" | "prompts" | "rules" | "texts" | "landing" | "integrations") {
   const [s, setS] = useState<Any>(null);
   const [draft, setDraft] = useState<Any>(null);
   const [busy, run] = useBusy();
@@ -829,6 +839,7 @@ function Learning() {
                   <Pill tone={e.status === "running" ? "green" : e.status === "won" ? "blue" : e.status === "draft" ? "amber" : undefined}>{({ draft: "Taslak", running: "Çalışıyor", won: `Kazanan: ${e.winner}`, inconclusive: "Fark çıkmadı", stopped: "Durduruldu" } as Any)[e.status]}</Pill>
                   {e.status === "draft" && <Btn small onClick={() => run(`e${e.id}`, async () => { notify((await api("experiment_status", { id: e.id, status: "running" })).message); await load(); })}>Başlat</Btn>}
                   {e.status === "running" && <Btn small kind="danger" onClick={() => run(`e${e.id}`, async () => { await api("experiment_status", { id: e.id, status: "stopped" }); await load(); }, "Durduruldu.")}>Durdur</Btn>}
+                  {e.status !== "running" && <Btn small kind="soft" onClick={() => window.confirm(`Test #${e.id} ve sonuçları silinsin mi?`) && run(`x${e.id}`, async () => { await api("row_delete", { table: "experiments", id: e.id }); await load(); }, "Silindi.")}>Sil</Btn>}
                 </div>
               </div>
               <p className="a-help">{SLOT_TR[e.slot] ?? e.slot} · ölçüt: {METRIC_TR[e.metric] ?? e.metric} · varyant başına en az {e.min_sample} kişi</p>
@@ -854,10 +865,20 @@ function Learning() {
         </div>
       </Card>
 
+      <Card title="Rehber sürüm geçmişi" desc="Eski bir sürüme dönmek isterseniz “Bu sürüme dön” deyin: içeriği yeni bir sürüm olarak yayına alınır.">
+        {[...d.versions, ...(d.versions.some((v: Any) => v.version === 1) ? [] : [{ version: 1, status: d.active.version === 1 ? "active" : "retired", summary: "Elle yazılmış başlangıç rehberi.", created_by: "system" }])].map((v: Any) => (
+          <div key={v.version} className="a-row" style={{ justifyContent: "space-between", borderTop: "1px solid #eef2f0", padding: "8px 0" }}>
+            <span style={{ flex: 1, minWidth: 220 }}><b>v{v.version}</b> <Pill tone={v.status === "active" ? "green" : v.status === "proposed" ? "amber" : v.status === "rejected" ? "red" : undefined}>{({ active: "Yayında", proposed: "Onay bekliyor", retired: "Eski", rejected: "Reddedildi" } as Any)[v.status] ?? v.status}</Pill> <span className="a-help">{v.created_by === "coach" ? "koç" : v.created_by === "experiment" ? "A/B testi" : v.created_by === "admin" ? "siz" : ""} {v.created_at ? `· ${when(v.created_at)}` : ""}<br />{v.summary}</span></span>
+            {v.status !== "active" && v.status !== "proposed" && <Btn small kind="soft" onClick={() => window.confirm(`v${v.version} içeriği yeniden yayına alınsın mı?`) && run(`r${v.version}`, async () => { const r = await api("playbook_restore", { version: v.version }); await load(); notify(`v${v.version} içeriği v${r.version} olarak yayında.`); })} busy={busy === `r${v.version}`}>Bu sürüme dön</Btn>}
+            {v.status !== "active" && v.version !== 1 && <Btn small kind="danger" onClick={() => window.confirm(`v${v.version} silinsin mi?`) && run(`dv${v.version}`, async () => { await api("row_delete", { table: "playbooks", id: v.version }); await load(); }, "Silindi.")}>Sil</Btn>}
+          </div>
+        ))}
+      </Card>
+
       <Card title="Koçun geçmiş turları">
         {d.batches.map((b: Any) => (
           <div key={b.id} style={{ borderTop: "1px solid #eef2f0", padding: "10px 0" }}>
-            <p><b>Tur #{b.id}</b> <span className="a-help">· {when(b.created_at)} · {b.sample_size} konuşma, {b.won_count} satış · en büyük kayıp: {b.biggest_leak ?? "–"}</span> <Pill>{({ proposed: "Öneri hazırlandı", active: "Yayına alındı", unchanged: "Değişiklik yok", rejected: "Reddedildi (güvenlik)" } as Any)[b.result] ?? b.result}</Pill></p>
+            <p><button className="a-del" title="Bu turu sil" onClick={() => window.confirm(`Tur #${b.id} silinsin mi?`) && run(`b${b.id}`, async () => { await api("row_delete", { table: "learning_batches", id: b.id }); await load(); })}>🗑</button><b>Tur #{b.id}</b> <span className="a-help">· {when(b.created_at)} · {b.sample_size} konuşma, {b.won_count} satış · en büyük kayıp: {b.biggest_leak ?? "–"}</span> <Pill>{({ proposed: "Öneri hazırlandı", active: "Yayına alındı", unchanged: "Değişiklik yok", rejected: "Reddedildi (güvenlik)" } as Any)[b.result] ?? b.result}</Pill></p>
             <p style={{ fontSize: 14, marginTop: 4 }}>{b.summary}</p>
             {(b.problems ?? []).length > 0 && <p className="a-help">Sorunlar: {b.problems.join(" · ")}</p>}
           </div>
@@ -873,7 +894,7 @@ function Learning() {
               {d.analyses.map((a: Any) => (
                 <tr key={a.lead_id}><td>{a.leads?.first_name ?? "?"}<br /><span className="a-help">{when(a.created_at)}</span></td>
                   <td>{a.outcome === "won" ? <Pill tone="green">Satış</Pill> : <Pill tone="red">{a.loss_reason ?? "Kayıp"}</Pill>}<br /><span className="a-help">{STAGE_TR[a.drop_stage] ?? a.drop_stage}</span></td>
-                  <td><b>{a.conversation_quality ?? "–"}</b></td><td style={{ fontSize: 13.5 }}>{a.summary}{(a.agent_mistakes ?? []).length > 0 && <><br /><span style={{ color: "#a3241d" }}>Hata: {a.agent_mistakes.join(" · ")}</span></>}</td></tr>
+                  <td><b>{a.conversation_quality ?? "–"}</b></td><td style={{ fontSize: 13.5 }}><button className="a-del" title="Bu analizi sil" onClick={() => window.confirm("Bu analiz silinsin mi?") && run(`a${a.lead_id}`, async () => { await api("row_delete", { table: "conversation_analyses", id: a.lead_id }); await load(); })}>🗑</button>{a.summary}{(a.agent_mistakes ?? []).length > 0 && <><br /><span style={{ color: "#a3241d" }}>Hata: {a.agent_mistakes.join(" · ")}</span></>}</td></tr>
               ))}
               {!d.analyses.length && <tr><td colSpan={4} className="a-help">Henüz analiz yok.</td></tr>}
             </tbody>
@@ -910,7 +931,7 @@ function Payments() {
                       <Btn small onClick={() => run(p.whop_payment_id, async () => { notify((await api("payment_link", { payment_id: p.whop_payment_id, telegram_id: ids[p.whop_payment_id] })).message); await load(); })} busy={busy === p.whop_payment_id}>Bağla</Btn></div>
                   )}</td>
                   <td>{PLAN_TR[p.plan_key] ?? p.plan_key ?? "–"}</td><td>{money(p.amount)}</td>
-                  <td>{p.status === "refunded" ? <Pill tone="red">İade edildi</Pill> : p.is_first ? <Pill tone="green">Yeni satış</Pill> : <Pill tone="blue">Yenileme</Pill>}</td><td className="a-help">{p.email ?? ""}</td>
+                  <td>{p.status === "refunded" ? <Pill tone="red">İade edildi</Pill> : p.is_first ? <Pill tone="green">Yeni satış</Pill> : <Pill tone="blue">Yenileme</Pill>}</td><td className="a-help">{p.email ?? ""} <button className="a-del" title="Bu ödeme kaydını sil" onClick={() => window.confirm("Bu ödeme KAYDI silinsin mi? (Whop'taki gerçek ödeme etkilenmez; panelde gelir toplamı değişmez.)") && run(`p${p.whop_payment_id}`, async () => { await api("row_delete", { table: "payments", id: p.whop_payment_id }); await load(); })}>🗑</button></td>
                 </tr>
               ))}
               {d && !d.payments.length && <tr><td colSpan={6} className="a-help">Henüz ödeme yok.</td></tr>}
@@ -981,13 +1002,227 @@ function System() {
 }
 
 /* =====================================================================
+ *  DESTEK TALEPLERİ
+ * ===================================================================== */
+function Tickets({ openLead }: { openLead: (id: string) => void }) {
+  const [d, setD] = useState<Any>(null);
+  const [busy, run] = useBusy();
+  const load = useCallback(() => run("load", async () => setD(await api("tickets"))), [run]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <>
+      <h1>Destek Talepleri</h1>
+      <p className="a-intro">Müşteri ekran görüntüsü gönderdiğinde veya insan istediğinde talep açılır ve o kişi için yapay zekâ susar. Normalde <b>Telegram'da</b> bottan gelen mesajdaki “Reply / Solved / Teach the AI” düğmeleriyle yönetirsiniz; burası genel görünüm ve temizlik içindir. Ekran görüntüleri veritabanına KAYDEDİLMEZ — yalnızca sizin Telegram sohbetinizde durur. “Sil” derseniz bot o mesajları sohbetinizden de silmeyi dener (Telegram buna yaklaşık 48 saat izin verir).</p>
+      <Card>
+        <div className="a-scroll">
+          <table className="a-table">
+            <thead><tr><th>#</th><th>Kişi</th><th>Neden</th><th>Durum</th><th>Son hareket</th><th /></tr></thead>
+            <tbody>
+              {(d?.tickets ?? []).map((t: Any) => (
+                <tr key={t.id}>
+                  <td>{t.id}</td>
+                  <td>{t.leads?.first_name ?? "?"} {t.leads?.username ? `@${t.leads.username}` : ""} {t.leads?.vip_active && <Pill tone="green">VIP</Pill>}</td>
+                  <td>{t.reason === "screenshot" ? "📸 Ekran görüntüsü" : "🙋 İnsan istedi"}</td>
+                  <td>{t.status === "open" ? <Pill tone="amber">Açık — bot susuyor</Pill> : t.status === "solved" ? <Pill tone="green">Çözüldü</Pill> : <Pill>Süre doldu, bot devraldı</Pill>}</td>
+                  <td>{when(t.last_activity_at)}</td>
+                  <td><div className="a-row">
+                    <Btn small kind="soft" onClick={() => openLead(t.lead_id)}>Konuşmayı aç</Btn>
+                    {t.status === "open" && <Btn small onClick={() => run(`s${t.id}`, async () => { await api("ticket_action", { id: t.id, op: "solve" }); await load(); }, "Çözüldü. Bot bu kişiye tekrar cevap veriyor.")} busy={busy === `s${t.id}`}>Çözüldü</Btn>}
+                    <Btn small kind="danger" onClick={() => window.confirm("Talep ve Telegram sohbetinizdeki ilgili mesajlar (ekran görüntüsü dahil) silinsin mi?") && run(`d${t.id}`, async () => { await api("ticket_action", { id: t.id, op: "delete" }); await load(); }, "Silindi.")} busy={busy === `d${t.id}`}>Sil</Btn>
+                  </div></td>
+                </tr>
+              ))}
+              {d && !d.tickets.length && <tr><td colSpan={6} className="a-help">Henüz destek talebi yok. (Tablo hiç görünmüyorsa Supabase'de support_and_cleanup.sql dosyasını çalıştırın.)</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </>
+  );
+}
+
+/* =====================================================================
+ *  HAZIR MESAJLAR  +  AÇILIŞ SAYFASI   (aynı düzenleyici)
+ * ===================================================================== */
+type FlatGroup = { title: string; desc?: string; items: [string, string, string?, number?][] };
+
+const TEXT_GROUPS: FlatGroup[] = [
+  { title: "Planlar ve VIP", items: [["plansIntro", "Plan listesinin başlığı"], ["plansFooter", "Plan listesinin altındaki açıklama", "Abonelik / otomatik yenileme bilgisini burada tutun.", 4], ["alreadyVipStart", "Zaten VIP olan biri /start yazınca"], ["alreadyVip", "Zaten VIP olan biri /planos yazınca"], ["doNotSell", "Satış kapalı kişiye (yaş / risk)", "", 3]] },
+  { title: "Ücretsiz kanal", items: [["freeInviteFallback", "Bot daveti unutursa sistemin gönderdiği davet", "", 3], ["canal", "/canal komutunun cevabı"], ["joinConfirmed", "“Já entrei” → doğrulandı bildirimi"], ["joinNotFound", "“Já entrei” → kanalda bulunamadı uyarısı", "En fazla ~190 karakter gösterilir.", 2]] },
+  { title: "Ses, resim ve destek", items: [["audioReply", "Sesli mesaj gelince", "", 2], ["imageReceived", "Resim gelince (size iletildi)", "", 3], ["imageNoTeam", "Resim gelince (yönetici sohbeti tanımlı değilse)", "", 2], ["ticketAck", "Destek talebi açıkken müşteri yazınca (saatte en fazla 1 kez)", "", 2], ["handoffContact", "İnsan istendiğinde destek kişisi", "{support} = destek kullanıcı adı"], ["nonTextReply", "Çıkartma / dosya / video gelince", "", 2]] },
+  { title: "Ödeme ve erişim", items: [["vipDelivered", "Ödeme onaylandı (VIP linkiyle)", "{plan} = plan adı", 5], ["vipDeliveredNoLink", "Ödeme onaylandı (link yoksa)", "{plan} = plan adı", 5], ["vipEnded", "Abonelik bitti, VIP'ten çıkarıldı", "", 3], ["paymentFailed", "İlk ödeme reddedildi", "", 3]] },
+  { title: "Genel", items: [["optOutDone", "“PARAR” yazınca", "", 2], ["help", "Bilinmeyen komut / yardım", "", 2], ["technicalFallback", "Yapay zekâ o an çalışmıyorsa", "", 2], ["safeFallback", "Yapay zekâ güvenli cevap üretemediyse", "", 2]] },
+  { title: "Düğme yazıları", desc: "En fazla 40 karakter.", items: [["btnJoinFree", "Ücretsiz kanala gir"], ["btnJoined", "Girdim"], ["btnVip", "VIP kanala gir"], ["btnSupport", "Ekiple konuş"]] },
+];
+const LANDING_GROUPS: FlatGroup[] = [
+  { title: "Üst bölüm", desc: "Reklamdan gelen kişinin ilk gördüğü yer. En önemli kısım başlık ve düğmedir.", items: [["eyebrow", "Başlığın üstündeki küçük yazı"], ["headline1", "Başlık — 1. parça"], ["headlineHighlight", "Başlık — sarı vurgulu parça"], ["headline2", "Başlık — son parça"], ["lead", "Başlığın altındaki açıklama", "", 3], ["cta", "Ana düğme yazısı"], ["micro", "Düğmenin altındaki küçük not", "", 2]] },
+  { title: "“Nasıl çalışır” bölümü", items: [["howTitle", "Bölüm başlığı"], ["step1Title", "1. adım başlığı"], ["step1Text", "1. adım açıklaması", "", 2], ["step2Title", "2. adım başlığı"], ["step2Text", "2. adım açıklaması", "", 2], ["step3Title", "3. adım başlığı"], ["step3Text", "3. adım açıklaması", "", 2]] },
+  { title: "Dürüstlük bölümü ve alt bilgi", desc: "“Garanti yok” mesajı ve +18 uyarısı hem yasal koruma hem de Meta reklam onayı için önemlidir; yumuşatabilirsiniz ama kaldırmayın.", items: [["honestTitle", "Bölüm başlığı"], ["honestText", "Metin", "", 4], ["cta2", "İkinci düğme yazısı"], ["footer", "Alt bilgi (+18 uyarısı)", "", 4]] },
+];
+
+function FlatSection({ section, title, intro, groups, after }: { section: "texts" | "landing"; title: string; intro: ReactNode; groups: FlatGroup[]; after?: ReactNode }) {
+  const { s, draft, upd, save, reset, busy, dirty } = useSection(section);
+  if (!draft) return <p className="a-help">Yükleniyor…</p>;
+  return (
+    <>
+      <h1>{title}</h1>
+      <p className="a-intro">{intro}</p>
+      {groups.map((g) => (
+        <Card key={g.title} title={g.title} desc={g.desc}>
+          {g.items.map(([k, label, help, rows]) => (
+            <Field key={k} label={label} help={help || undefined}>
+              <div className="a-listedit">
+                <Txt rows={rows} value={draft[k]} onChange={(v) => upd([k], v)} />
+                {draft[k] !== s.defaults[section][k] && <Btn small kind="soft" onClick={() => upd([k], s.defaults[section][k])}>İlk hâli</Btn>}
+              </div>
+            </Field>
+          ))}
+        </Card>
+      ))}
+      {after}
+      <SaveBar onSave={save} onReset={reset} busy={busy} dirty={dirty} />
+    </>
+  );
+}
+
+/* =====================================================================
+ *  ENTEGRASYONLAR  (Meta Pixel + Conversions API + olaylar + bağlantılar)
+ * ===================================================================== */
+const EVENT_TR: [string, string, string][] = [
+  ["ctaClick", "Sitede “Telegram'da aç” düğmesine bastı", "Tarayıcı pikseli + sunucu (tek sayılır)"],
+  ["botStarted", "Botu başlattı", "Sunucu"],
+  ["freeJoined", "Ücretsiz kanala girdi (Telegram doğruladı)", "Sunucu"],
+  ["vipOfferShown", "VIP planları ilk kez gösterildi", "Sunucu"],
+  ["checkoutStarted", "Whop ödeme sayfasını açtı", "Sunucu (tutar ile)"],
+  ["purchase", "İlk ödeme onaylandı", "Sunucu (tutar, para birimi, e-posta özeti ile)"],
+];
+const STANDARD_EVENTS = ["Lead", "CompleteRegistration", "Contact", "ViewContent", "InitiateCheckout", "AddToCart", "AddPaymentInfo", "Purchase", "Subscribe", "StartTrial", "SubmitApplication", "Schedule"];
+
+function Integrations() {
+  const { s, draft: it, upd, save, busy, dirty, reset } = useSection("integrations");
+  const [tBusy, run] = useBusy();
+  if (!it) return <p className="a-help">Yükleniyor…</p>;
+  const info = s.integrationsInfo;
+  const envNote = (has: unknown, shown?: string | null) => (has ? `Boş bırakırsanız Vercel'deki değer kullanılır${shown ? `: ${shown}` : " (tanımlı ✅)"}.` : "Vercel'de tanımlı değil; buraya yazmanız yeterli.");
+  return (
+    <>
+      <h1>Entegrasyonlar</h1>
+      <p className="a-intro">Meta (Facebook) pikseli, Conversions API anahtarı, hangi olayın hangi adla gönderileceği ve bazı bağlantılar. Buraya yazdığınız değer Vercel'deki değerin ÖNÜNE geçer; kaydettikten ~30 saniye sonra geçerli olur, yeniden yayınlamaya gerek yoktur (site tarafındaki piksel en geç 2 dakikada güncellenir).</p>
+
+      <Card title="Meta Pixel ve Conversions API" right={<Btn kind="ghost" small disabled={dirty} onClick={() => run("test", async () => { const r = await api("meta_test"); notify(r.ok ? `✅ Meta bağlantısı çalışıyor.\n${r.detail}` : `Meta reddetti:\n${r.detail}`, !r.ok); })} busy={tBusy === "test"}>Bağlantıyı test et</Btn>}>
+        {dirty && <p className="a-help" style={{ marginBottom: 8 }}>Test etmeden önce kaydedin.</p>}
+        <div className="a-grid2">
+          <Field label="Pixel (Dataset) ID" help={<>Events Manager → Veri kaynakları → pikseliniz → Ayarlar. {envNote(info.env.pixel)}</>}><Txt value={it.metaPixelId} onChange={(v) => upd(["metaPixelId"], v.trim())} placeholder="1234567890123456" /></Field>
+          <Field label="Conversions API erişim anahtarı (token)" help={<>Aynı sayfada “Conversions API → Erişim anahtarı oluştur”. Güvenlik için kayıtlı anahtar asla geri gösterilmez. {info.tokenInPanel ? <b>Panelde kayıtlı: {info.tokenInPanel}</b> : envNote(info.env.token)}</>}>
+            <input type="password" autoComplete="off" value={it.metaAccessToken === "__CLEAR__" ? "" : it.metaAccessToken} placeholder={info.tokenInPanel ? "Değiştirmek için yenisini yapıştırın" : "EAAB…"} onChange={(e) => upd(["metaAccessToken"], e.target.value.trim())} />
+            {info.tokenInPanel && <div style={{ marginTop: 6 }}><Btn small kind="danger" onClick={() => upd(["metaAccessToken"], "__CLEAR__")}>{it.metaAccessToken === "__CLEAR__" ? "Kaydedince silinecek" : "Paneldeki anahtarı sil"}</Btn></div>}
+          </Field>
+        </div>
+        <Field label="Test modu kodu" help={<>Events Manager → Test olayları sekmesindeki kod (ör. TEST12345). Doluyken olaylar YALNIZCA test sekmesinde görünür ve reklam optimizasyonunda kullanılmaz. <b>Gerçek reklamdan önce boşaltın.</b> {info.env.testCode ? `Vercel'de de bir kod tanımlı (${info.env.testCode}); burayı kaydettiğinizde paneldeki değer (boş dahil) geçerli olur.` : ""}</>}>
+          <Txt value={it.metaTestEventCode} onChange={(v) => upd(["metaTestEventCode"], v.trim())} placeholder="Boş = test modu kapalı" />
+        </Field>
+        {it.metaTestEventCode && <div className="a-warn">Test modu AÇIK: Meta bu olayları reklamlarınız için kullanmıyor.</div>}
+      </Card>
+
+      <Card title="Meta'ya gönderilen olaylar" desc="Her adım için olayı açıp kapatabilir veya adını değiştirebilirsiniz. Listeden standart bir olay seçin ya da kendi adınızı yazın (özel olay). Olayın “nerede gerçekleştiği” bilgisi (site / sohbet) Meta kuralları gereği doğru kalmalıdır, bu yüzden değiştirilemez.">
+        <datalist id="meta-events">{STANDARD_EVENTS.map((e) => <option key={e} value={e} />)}</datalist>
+        <div className="a-scroll">
+          <table className="a-table" style={{ minWidth: 720 }}>
+            <thead><tr><th>Ne olduğunda?</th><th style={{ width: 230 }}>Meta olay adı</th><th>Açık</th><th>Nasıl gider?</th></tr></thead>
+            <tbody>
+              {EVENT_TR.map(([k, label, how]) => (
+                <tr key={k}>
+                  <td>{label}<br /><span className="a-help">kaynak: {info.actionSources[k] === "website" ? "site" : "sohbet"} · ilk ayar: {info.eventDefaults[k].name}</span></td>
+                  <td><input list="meta-events" value={it.events[k].name} onChange={(e) => upd(["events", k, "name"], e.target.value.trim())} /></td>
+                  <td><input type="checkbox" style={{ width: 22, height: 22 }} checked={it.events[k].enabled} onChange={(e) => upd(["events", k, "enabled"], e.target.checked)} /></td>
+                  <td className="a-help">{how}{!STANDARD_EVENTS.includes(it.events[k].name) ? " · özel olay" : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <label className="a-row" style={{ marginTop: 12 }}><input type="checkbox" style={{ width: 20 }} checked={it.sendRenewalsAsPurchase} onChange={(e) => upd(["sendRenewalsAsPurchase"], e.target.checked)} /> Abonelik YENİLEMELERİNİ de “Purchase” olarak gönder (kapalıyken yalnızca ilk satın alma gönderilir — reklam optimizasyonu için önerilen budur)</label>
+      </Card>
+
+      <Card title="Bağlantılar ve destek">
+        <div className="a-grid2">
+          <Field label="Destek kullanıcı adı" help={<>Müşteri insan istediğinde verilen Telegram hesabı. {envNote(info.env.support, info.env.support)}</>}><Txt value={it.supportUsername} onChange={(v) => upd(["supportUsername"], v.trim())} placeholder="@palpite10_suporte" /></Field>
+          <div />
+          <Field label="Ücretsiz kanal davet linki" help={envNote(info.env.freeUrl, info.env.freeUrl)}><Txt value={it.freeChannelUrl} onChange={(v) => upd(["freeChannelUrl"], v.trim())} placeholder="https://t.me/+…" /></Field>
+          <Field label="VIP kanal yedek linki" help={<>Normalde bot her alıcıya tek kullanımlık link üretir; bu yalnızca o başarısız olursa kullanılır. {envNote(info.env.vipUrl, info.env.vipUrl)}</>}><Txt value={it.vipChannelUrl} onChange={(v) => upd(["vipChannelUrl"], v.trim())} placeholder="https://t.me/+…" /></Field>
+        </div>
+        <p className="a-help">Kanal ID'leri (üyelik doğrulama için) Vercel'de kalır: TELEGRAM_FREE_CHANNEL_ID, TELEGRAM_VIP_CHANNEL_ID.</p>
+      </Card>
+
+      <Card title="Yapay zekâ modeli">
+        <datalist id="ds-models"><option value="deepseek-flash" /><option value="deepseek-v4-pro" /></datalist>
+        <div className="a-grid2">
+          <Field label="Sohbet modeli" help={`Boş = Vercel'deki değer (${info.env.model}). Müşteriyle konuşan model; hız önemlidir.`}><input list="ds-models" value={it.deepseekModel} onChange={(e) => upd(["deepseekModel"], e.target.value.trim())} placeholder={info.env.model} /></Field>
+          <Field label="Koç modeli" help={`Boş = ${info.env.coachModel ?? "sohbet modeliyle aynı"}. Günde bir kez çalışır; daha güçlü bir model seçebilirsiniz.`}><input list="ds-models" value={it.deepseekCoachModel} onChange={(e) => upd(["deepseekCoachModel"], e.target.value.trim())} /></Field>
+        </div>
+      </Card>
+
+      <div className="a-info">🔐 Şunlar bilerek Vercel'de kalır, çünkü uygulama veritabanına ulaşmadan ÖNCE bunlara ihtiyaç duyar veya sızarsa para kaybına yol açar: Telegram bot token'ı, Supabase anahtarı, DeepSeek API anahtarı, Whop API anahtarı ve webhook gizli anahtarı, Whop plan ID'leri, panel şifresi.</div>
+      <SaveBar onSave={save} onReset={reset} busy={busy} dirty={dirty} />
+    </>
+  );
+}
+
+/* =====================================================================
+ *  VERİ YÖNETİMİ  (toplu silme)
+ * ===================================================================== */
+const BULK: [string, string, string, number][] = [
+  ["never_started", "Botu hiç başlatmayan ziyaretçiler", "Sitede düğmeye basıp Telegram'da /start demeyenler. Silinirse “sitede butona basan” sayısı geçmiş dönemler için azalır.", 60],
+  ["lost", "Kaybedilen kişiler (tamamen)", "Satın almamış ve “kaybedildi” olarak kapanmış kişiler; konuşmaları, profilleri ve analizleriyle birlikte. Huni sayıları geçmiş için azalır.", 90],
+  ["messages", "Konuşma metinleri", "Analiz edilmiş olsun olmasın, bu süreden eski TÜM mesaj metinleri. (Otomatik temizlik yalnızca analizi bitenleri siler.)", 30],
+  ["logs", "Teknik kayıtlar", "Olay kayıtları (itirazlar dahil), Whop / Telegram ham kayıtları, eski ödeme bağlantıları.", 30],
+  ["tickets", "Kapanmış destek talepleri", "Açık olanlara dokunulmaz.", 30],
+  ["analyses", "Koçun zaten kullandığı konuşma analizleri", "Koç bunlardan öğrenip rehbere işlediği için silinmeleri öğrenmeyi bozmaz; yalnızca geçmiş listesi kısalır.", 90],
+];
+
+function DataAdmin() {
+  const [d, setD] = useState<Any>(null);
+  const [days, setDays] = useState<Record<string, number>>(Object.fromEntries(BULK.map(([k, , , n]) => [k, n])));
+  const [busy, run] = useBusy();
+  const load = useCallback(() => run("load", async () => setD(await api("system"))), [run]);
+  useEffect(() => { load(); }, [load]);
+  return (
+    <>
+      <h1>Veri Yönetimi</h1>
+      <p className="a-intro">Veritabanından istediğinizi silin. <b>Tek bir kişiyi, tek bir mesajı veya bir kişinin tüm konuşmasını</b> silmek için “Konuşmalar” sekmesinde kişiyi açın (en altta “Silme işlemleri”). Destek talepleri ve ekran görüntüleri için “Destek Talepleri”, öğrenme kayıtları için “Öğrenme” sekmesini kullanın. Buradaki işlemler TOPLU siler ve geri alınamaz.</p>
+      <Card title="Kullanım">
+        {d?.usage ? (
+          <>
+            <p><b>{(d.usage.bytes / 1048576).toFixed(1)} MB</b> / 500 MB (ücretsiz Supabase)</p>
+            <div className="a-bar" style={{ margin: "8px 0 12px" }}><i style={{ width: `${Math.min(100, (d.usage.bytes / (500 * 1048576)) * 100)}%` }} /></div>
+            {d.usage.tables.map((t: Any) => <p key={t.name} className="a-help">{t.name}: {(t.bytes / 1048576).toFixed(2)} MB · ~{t.rows} satır</p>)}
+          </>
+        ) : <p className="a-help">{d ? "Ölçülemedi: Supabase'de support_and_cleanup.sql dosyasını çalıştırın." : "Yükleniyor…"}</p>}
+        <div style={{ marginTop: 10 }}><Btn kind="ghost" onClick={() => run("purge", async () => { const r = await api("purge_now"); notify(`Otomatik temizlik çalıştı — mesaj: ${r.purged.messages} · kayıt: ${r.purged.events} · webhook: ${r.purged.webhooks}`); await load(); })} busy={busy === "purge"}>Otomatik temizliği şimdi çalıştır (güvenli)</Btn></div>
+      </Card>
+      {BULK.map(([k, title, desc]) => (
+        <Card key={k} title={title} desc={desc}>
+          <div className="a-row">
+            <span>Şu kadar günden eski olanları sil:</span>
+            <div style={{ width: 100 }}><Num value={days[k] ?? 30} min={0} max={3650} onChange={(v) => setDays({ ...days, [k]: v })} /></div>
+            <Btn kind="danger" onClick={() => window.confirm(`“${title}” — ${days[k]} günden eski kayıtlar KALICI olarak silinsin mi?${days[k] === 0 ? "\n\nDİKKAT: 0 gün = HEPSİ." : ""}`) && run(k, async () => { const r = await api("bulk_delete", { kind: k, days: days[k] }); notify(`Silindi: ${Object.entries(r.deleted).map(([t, n]) => `${t} ${n}`).join(" · ")}`); await load(); })} busy={busy === k}>Sil</Btn>
+          </div>
+        </Card>
+      ))}
+      <div className="a-info">Kalıcı olanlar: ödemeler (muhasebe kaydı; kişi silinince anonimleştirilir), onayladığınız satış rehberleri, bot bilgisi ve tüm ayarlarınız. Bunları tek tek ilgili sekmelerden silebilirsiniz.</div>
+    </>
+  );
+}
+
+/* =====================================================================
  *  Kabuk: giriş + menü
  * ===================================================================== */
-const TABS: [string, string][] = [["ozet", "📊 Genel Bakış"], ["konusmalar", "💬 Konuşmalar"], ["isletme", "🏷️ İşletme Bilgileri"], ["asistan", "🤖 Satış Asistanı"], ["kurallar", "⚖️ Kurallar ve Puanlama"], ["ogrenme", "🧠 Öğrenme"], ["odemeler", "💳 Ödemeler"], ["sistem", "🛠️ Sistem"]];
+const TABS: [string, string][] = [["ozet", "📊 Genel Bakış"], ["konusmalar", "💬 Konuşmalar"], ["destek", "🆘 Destek Talepleri"], ["isletme", "🏷️ İşletme Bilgileri"], ["asistan", "🤖 Satış Asistanı"], ["mesajlar", "✉️ Hazır Mesajlar"], ["kurallar", "⚖️ Kurallar ve Puanlama"], ["ogrenme", "🧠 Öğrenme"], ["sayfa", "🌐 Açılış Sayfası"], ["entegrasyon", "🔌 Entegrasyonlar"], ["odemeler", "💳 Ödemeler"], ["veri", "🗑️ Veri Yönetimi"], ["sistem", "🛠️ Sistem"]];
 
 export default function AdminPage() {
   const [auth, setAuth] = useState<"checking" | "in" | "out">("checking");
   const [tab, setTab] = useState("ozet");
+  const [openLead, setOpenLead] = useState<string | null>(null);
   const [pw, setPw] = useState("");
   const [toast, setToast] = useState<{ text: string; bad: boolean } | null>(null);
   const [busy, run] = useBusy();
@@ -1029,10 +1264,15 @@ export default function AdminPage() {
             <Btn small kind="soft" onClick={() => api("logout").finally(() => setAuth("out"))}>Çıkış</Btn>
           </div>
           <div className="a-shell">
-            <nav className="a-nav">{TABS.map(([k, l]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}</nav>
+            <nav className="a-nav">{TABS.map(([k, l]) => <button key={k} className={tab === k ? "on" : ""} onClick={() => { setOpenLead(null); setTab(k); }}>{l}</button>)}</nav>
             <main className="a-main">
               {tab === "ozet" && <Overview go={setTab} />}
-              {tab === "konusmalar" && <Conversations />}
+              {tab === "konusmalar" && <Conversations key={openLead ?? "list"} initial={openLead} />}
+              {tab === "destek" && <Tickets openLead={(id) => { setOpenLead(id); setTab("konusmalar"); }} />}
+              {tab === "mesajlar" && <FlatSection section="texts" title="Hazır Mesajlar" groups={TEXT_GROUPS} intro={<>Botun yapay zekâya sormadan, AYNEN gönderdiği sabit mesajlar ve düğme yazıları. Müşteriler Brezilyalı olduğu için <b>Portekizce</b> yazın. Kullanabileceğiniz değişkenler: <code>{"{brand}"}</code> marka, <code>{"{vip}"}</code> VIP adı, <code>{"{age}"}</code> yaş sınırı, <code>{"{frequency}"}</code> ücretsiz kanal sıklığı; belirtilen yerlerde <code>{"{plan}"}</code> ve <code>{"{support}"}</code>. Garanti / sahte aciliyet içeren metinler kaydedilemez.</>} />}
+              {tab === "sayfa" && <FlatSection section="landing" title="Açılış Sayfası" groups={LANDING_GROUPS} intro={<>Reklamdan gelenlerin gördüğü sayfanın bütün yazıları (Portekizce). Kaydettikten sonra site en geç 2 dakika içinde güncellenir. Değişkenler: <code>{"{brand}"}</code>, <code>{"{frequency}"}</code>, <code>{"{age}"}</code>. İpucu: aynı anda yalnızca BİR şeyi değiştirin (ör. başlık) ve Genel Bakış'ta “sitede butona basan → botu başlatan” oranını birkaç gün izleyin.</>} after={<div className="a-info">Sayfayı görmek için: <a href="/" target="_blank" rel="noreferrer">siteyi yeni sekmede aç</a>. Sağdaki “kupon” görseli bir illüstrasyondur ve gerçek tahmin içermez.</div>} />}
+              {tab === "entegrasyon" && <Integrations />}
+              {tab === "veri" && <DataAdmin />}
               {tab === "isletme" && <Business />}
               {tab === "asistan" && <Assistant />}
               {tab === "kurallar" && <Rules />}

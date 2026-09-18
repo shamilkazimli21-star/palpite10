@@ -1,3 +1,4 @@
+import { INTEGRATION_OVERRIDES } from "./integrations";
 import { getEnv } from "./env";
 import { sleep } from "./util";
 
@@ -59,7 +60,7 @@ export async function deepseekJson(options: JsonCallOptions): Promise<JsonCallRe
     const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 40_000);
     try {
       const body: Record<string, unknown> = {
-        model: options.model ?? env.DEEPSEEK_MODEL,
+        model: options.model ?? (INTEGRATION_OVERRIDES.deepseekModel || env.DEEPSEEK_MODEL),
         messages: options.messages,
         max_tokens: options.maxTokens ?? 1200,
         response_format: { type: "json_object" },

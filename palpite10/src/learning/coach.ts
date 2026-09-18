@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { deepseekJson } from "../lib/deepseek";
 import { getEnv } from "../lib/env";
+import { INTEGRATION_OVERRIDES } from "../lib/integrations";
 import { db, must } from "../lib/supabase";
 import { notifyAdmin } from "../lib/admin";
 import { COACH_PROMPT } from "../config/prompts";
@@ -125,7 +126,7 @@ export async function runCoach(options: { force?: boolean } = {}): Promise<Coach
       { role: "system", content: COACH_PROMPT + OWNER_REVIEWS_NOTE },
       { role: "user", content: `DATA (json):\n${JSON.stringify(input)}` },
     ],
-    model: env.DEEPSEEK_COACH_MODEL ?? env.DEEPSEEK_MODEL,
+    model: INTEGRATION_OVERRIDES.deepseekCoachModel || env.DEEPSEEK_COACH_MODEL || INTEGRATION_OVERRIDES.deepseekModel || env.DEEPSEEK_MODEL,
     thinking: true,
     maxTokens: 6000,
     timeoutMs: 180_000,

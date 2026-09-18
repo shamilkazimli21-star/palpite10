@@ -1,5 +1,6 @@
 import { BUSINESS, getPlan } from "../config/business";
 import { META_EVENTS } from "../config/funnel";
+import { tx } from "../config/texts";
 import { notifyAdmin } from "../lib/admin";
 import { db, must } from "../lib/supabase";
 import { getLeadById, getLeadByMembership, recordEvent, recordMessage, updateLead, type Lead } from "../lib/leads";
@@ -155,7 +156,7 @@ export async function processPaymentFailed(data: unknown): Promise<string> {
   await recordEvent(lead.id, "PAYMENT_FAILED", { payment: refs.paymentId, reason: refs.billingReason });
   // Renewal failures are handled by Whop's own retries/e-mails. We only help with a first purchase, at most once per 12h.
   if (lead.paid || recent?.length || !lead.chat_id || lead.blocked || lead.opted_out || lead.do_not_sell) return "recorded";
-  const text = "Vi aqui que o pagamento não foi aprovado 😕 Às vezes é só o banco/cartão. Se quiser tentar de novo, mande /planos — e se precisar de ajuda é só me falar.";
+  const text = tx("paymentFailed");
   await sendText(lead.chat_id, text).then(
     () => recordMessage(lead.id, "assistant", text),
     () => undefined,

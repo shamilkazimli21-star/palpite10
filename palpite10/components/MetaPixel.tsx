@@ -27,6 +27,7 @@ export function visitorId(): string {
 
 export default function MetaPixel({ pixelId }: { pixelId?: string }) {
   useEffect(() => {
+    if (window.location.pathname.startsWith("/admin")) return;
     const vid = visitorId();
     if (!pixelId || window.fbq) return;
 

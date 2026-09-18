@@ -1,5 +1,6 @@
 import { getEnv } from "../lib/env";
-import { BUSINESS } from "../config/business";
+import { TEXTS, tx } from "../config/texts";
+import { INTEGRATION_OVERRIDES } from "../lib/integrations";
 import { createSingleUseInvite, removeFromChannel, sendText, TelegramError } from "../lib/telegram";
 import { recordEvent, recordMessage, updateLead, type Lead } from "../lib/leads";
 import { notifyAdmin } from "../lib/admin";
@@ -29,14 +30,14 @@ export async function deliverVipAccess(lead: Lead, planName: string): Promise<vo
       warning = `Could not create VIP invite (${(error as Error).message}). Is the bot an admin of the VIP channel with "Invite users via link"?`;
     }
   }
-  link = link ?? env.TELEGRAM_VIP_CHANNEL_URL ?? null;
+  link = link ?? (INTEGRATION_OVERRIDES.vipChannelUrl || env.TELEGRAM_VIP_CHANNEL_URL) ?? null;
 
   const text = link
-    ? `Pagamento confirmado! ✅\n\nBem-vindo ao ${BUSINESS.vip.name} (${planName}). Toque no botão abaixo para entrar no canal VIP.\n\nO link é só seu — não compartilhe.`
-    : `Pagamento confirmado! ✅\n\nBem-vindo ao ${BUSINESS.vip.name} (${planName}). Seu acesso está sendo liberado pela Whop — se não aparecer em alguns minutos, me avise por aqui que a equipe resolve.`;
+    ? tx("vipDelivered", { plan: planName })
+    : tx("vipDeliveredNoLink", { plan: planName });
 
   try {
-    await sendText(lead.chat_id, text, link ? { keyboard: { inline_keyboard: [[{ text: "👑 Entrar no canal VIP", url: link }]] } } : {});
+    await sendText(lead.chat_id, text, link ? { keyboard: { inline_keyboard: [[{ text: TEXTS.btnVip, url: link }]] } } : {});
     await recordMessage(lead.id, "assistant", text);
     await updateLead(lead.id, { vip_access_sent: true, last_bot_message_at: new Date().toISOString() });
     await recordEvent(lead.id, "VIP_ACCESS_SENT", { via: env.TELEGRAM_VIP_CHANNEL_ID && !warning ? "single_use_invite" : link ? "static_link" : "whop" });
@@ -62,7 +63,7 @@ export async function revokeVipAccess(lead: Lead, reason: string): Promise<void>
     }
   }
   if (lead.chat_id && !lead.blocked && !lead.opted_out && reason !== "refund") {
-    const text = `Seu acesso ao ${BUSINESS.vip.name} terminou. Valeu por ter acompanhado com a gente! Se quiser voltar, é só mandar /planos. O canal gratuito continua aberto pra você.`;
+    const text = tx("vipEnded");
     await sendText(lead.chat_id, text).then(
       () => recordMessage(lead.id, "assistant", text),
       () => undefined,
