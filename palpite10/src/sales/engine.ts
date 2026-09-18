@@ -24,6 +24,7 @@ import { assignExperiments, getLiveInstructions } from "../learning/experiments"
 import { getActivePlaybook } from "../learning/playbook";
 import { permissionsFor, runSalesAgent, stageOf, type AgentOutput, type NextAction } from "./agent";
 import { TECHNICAL_FALLBACK_REPLY } from "./guardrails";
+import { openTicket } from "./support";
 
 export type TelegramUser = { id: number; first_name?: string; username?: string; language_code?: string };
 
@@ -220,11 +221,14 @@ export async function runTurn(leadId: string, options: TurnOptions): Promise<voi
     }
   }
   if (action === "handoff_human" && !lead.needs_human) {
-    lead = await updateLead(lead.id, { needs_human: true });
     await recordEvent(lead.id, "HANDOFF_REQUESTED");
-    await notifyAdmin(
-      `🙋 ${lead.first_name ?? "Lead"} (@${lead.username ?? "-"}, id ${lead.telegram_user_id}) needs a human.\nLast message: "${(options.userText ?? "").slice(0, 300)}"\nOpen the chat: tg://user?id=${lead.telegram_user_id}`,
-    );
+    // Opens a support ticket: the owner gets it in Telegram with Reply / Solved buttons and the AI stays
+    // quiet for this person until it is solved (or auto-released). See src/sales/support.ts.
+    const ticket = await openTicket(lead, { reason: "handoff", text: options.userText });
+    if (!ticket) {
+      await notifyAdmin(`🙋 ${lead.first_name ?? "Lead"} (@${lead.username ?? "-"}, id ${lead.telegram_user_id}) needs a human.\nLast message: "${(options.userText ?? "").slice(0, 300)}"\nAnswer with: /say ${lead.telegram_user_id} <text>`);
+    }
+    lead = await updateLead(lead.id, { needs_human: true });
   }
 
   /* ---- 6. safety net: the free invite must not be forgotten ---------- */

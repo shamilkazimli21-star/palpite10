@@ -1,7 +1,7 @@
 import { db, must } from "../lib/supabase";
 import { notifyAdmin } from "../lib/admin";
 import { mapLimit } from "../lib/util";
-import { FUNNEL, LEARNING } from "../config/funnel";
+import { FUNNEL, LEARNING, RETENTION } from "../config/funnel";
 import type { Lead } from "../lib/leads";
 import { analyzeLead } from "./analyst";
 import { runCoach, type CoachResult } from "./coach";
@@ -13,6 +13,8 @@ export type LearningRunResult = {
   analysisErrors: number;
   experimentNotes: string[];
   coach: CoachResult | { status: "error"; message: string };
+  /** Rows deleted by the daily clean-up (null = supabase/support_and_cleanup.sql not run yet). */
+  purged: Record<string, number> | null;
 };
 
 /**
@@ -91,6 +93,16 @@ async function dailyDigest(result: LearningRunResult): Promise<void> {
   );
 }
 
+/** Keeps the free 500 MB database small. Runs AFTER the analyses so nothing is deleted before it was learned from. */
+export async function purgeOldData(): Promise<Record<string, number> | null> {
+  const { data, error } = await db().rpc("purge_old_data", { p_message_days: RETENTION.messageDays, p_event_days: RETENTION.eventDays });
+  if (error) {
+    console.error("[cleanup]", error.message, "— run supabase/support_and_cleanup.sql");
+    return null;
+  }
+  return data as Record<string, number>;
+}
+
 export async function runLearningCycle(options: { forceCoach?: boolean; digest?: boolean } = {}): Promise<LearningRunResult> {
   const closedAsSilent = await closeStaleLeads();
   const { analyzed, errors } = await analyzeClosedLeads();
@@ -110,7 +122,8 @@ export async function runLearningCycle(options: { forceCoach?: boolean; digest?:
     coach = { status: "error", message: (error as Error).message.slice(0, 300) };
   }
 
-  const result: LearningRunResult = { closedAsSilent, analyzed, analysisErrors: errors, experimentNotes, coach };
+  const purged = await purgeOldData();
+  const result: LearningRunResult = { closedAsSilent, analyzed, analysisErrors: errors, experimentNotes, coach, purged };
   if (options.digest !== false) await dailyDigest(result).catch((e) => console.error("[learning] digest:", e));
   return result;
 }

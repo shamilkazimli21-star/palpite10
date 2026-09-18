@@ -286,3 +286,17 @@ export const META_EVENTS = {
   /** Subscription renewals are stored as revenue but not sent as Purchase by default. */
   sendRenewalsAsPurchase: false,
 } as const;
+
+/* ------------------------------------------------------------------ */
+/*  DATA RETENTION + SUPPORT                                           */
+/* ------------------------------------------------------------------ */
+
+/** Free Supabase plan = 500 MB. Old chat texts and raw logs are deleted daily; everything learned is kept. */
+export const RETENTION = { messageDays: 30, eventDays: 30 } as const;
+
+export const SUPPORT = {
+  /** An open ticket nobody touched for this long is released back to the AI. */
+  autoReleaseHours: 12,
+  /** Issue → solution pairs taught by the owner that are injected into the sales prompt. */
+  maxKnowledgeEntries: 25,
+} as const;

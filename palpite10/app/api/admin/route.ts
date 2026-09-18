@@ -7,12 +7,12 @@ import { deepseekJson } from "@/src/lib/deepseek";
 import { getLeadById, getLeadByTelegramId, recordEvent, recordMessage, updateLead, type Lead, type StoredMessage } from "@/src/lib/leads";
 import { allowRequest } from "@/src/lib/rate-limit";
 import { lastMetaError } from "@/src/lib/meta";
-import { loadSettings, resetSection, saveSection, SettingsError, settingsView, type SettingsSection } from "@/src/lib/settings";
+import { loadSettings, resetSection, saveKnowledge, saveSection, SettingsError, settingsView, type SettingsSection } from "@/src/lib/settings";
 import { db } from "@/src/lib/supabase";
 import { registerWebhook, sendText, tg } from "@/src/lib/telegram";
 import { clientIp, safeEqual } from "@/src/lib/util";
 import { createExperiment, listExperiments, setExperimentStatus } from "@/src/learning/experiments";
-import { runLearningCycle } from "@/src/learning/pipeline";
+import { purgeOldData, runLearningCycle } from "@/src/learning/pipeline";
 import { activatePlaybook, DEFAULT_PLAYBOOK, getActivePlaybook, playbookContentSchema, rejectPlaybook, savePlaybook, validateProposal } from "@/src/learning/playbook";
 import { permissionsFor, runSalesAgent, stageOf } from "@/src/sales/agent";
 import { runFollowups } from "@/src/sales/followups";
@@ -97,16 +97,17 @@ async function handle(action: string, body: any): Promise<unknown> {
     case "overview": {
       const days = int(body.days, 0, 365, 7);
       const since = days ? sinceDays(days) : null;
-      const [period, campaigns, objections, needsHuman, unlinked, proposals, sales] = await Promise.all([
+      const [period, campaigns, objections, needsHuman, unlinked, proposals, tickets, sales] = await Promise.all([
         rpc("funnel_stats", { p_since: since }),
         rpc("campaign_stats", { p_since: since }),
         rpc("objection_stats", { p_since: since }),
         countOf("leads", (q) => q.eq("needs_human", true).is("merged_into", null)),
         countOf("payments", (q) => q.is("lead_id", null).eq("status", "paid")),
         countOf("playbooks", (q) => q.eq("status", "proposed")),
+        countOf("support_tickets", (q) => q.eq("status", "open")),
         rows(db().from("payments").select("whop_payment_id, amount, currency, plan_key, is_first, status, created_at, leads(first_name, username)").order("created_at", { ascending: false }).limit(8)),
       ]);
-      return { period, campaigns, objections, alerts: { needsHuman, unlinked, proposals }, sales };
+      return { period, campaigns, objections, alerts: { needsHuman, unlinked, proposals, tickets }, sales };
     }
 
     /* ---------------- conversations ---------------- */
@@ -201,6 +202,11 @@ async function handle(action: string, body: any): Promise<unknown> {
       return settingsView();
     }
 
+    case "kb_save":
+      await saveKnowledge(body.entries);
+      await recordEvent(null, "ADMIN_KNOWLEDGE_SAVED", {});
+      return { knowledge: settingsView().knowledge };
+
     case "test_chat": {
       const history: { role: string; content: string }[] = (Array.isArray(body.history) ? body.history : []).slice(-24);
       if (!history.length || history[history.length - 1]!.role !== "user") bad("Önce müşteri olarak bir mesaj yazın.");
@@ -275,16 +281,20 @@ async function handle(action: string, body: any): Promise<unknown> {
     /* ---------------- system ---------------- */
     case "system": {
       const env = getEnv();
-      const [webhook, failedWhop, failedTelegram] = await Promise.all([
+      const [usage, webhook, failedWhop, failedTelegram] = await Promise.all([
+        db().rpc("db_usage").then((r) => r.data ?? null, () => null),
         tg<Record<string, unknown>>("getWebhookInfo", {}).catch((e) => ({ error: (e as Error).message })),
         rows(db().from("webhook_events").select("id, type, error, created_at").eq("status", "failed").order("created_at", { ascending: false }).limit(10)),
         rows(db().from("telegram_updates").select("update_id, error, attempts, created_at").eq("status", "failed").order("created_at", { ascending: false }).limit(10)),
       ]);
       return {
-        envProblems: envProblems(), lastMetaError, webhook, failedWhop, failedTelegram, appUrl: env.APP_URL, model: env.DEEPSEEK_MODEL,
+        envProblems: envProblems(), lastMetaError, usage, webhook, failedWhop, failedTelegram, appUrl: env.APP_URL, model: env.DEEPSEEK_MODEL,
         flags: { meta: Boolean(env.META_PIXEL_ID && env.META_ACCESS_TOKEN), metaTestMode: Boolean(env.META_TEST_EVENT_CODE), whopApiKey: Boolean(env.WHOP_API_KEY), vipChannelId: Boolean(env.TELEGRAM_VIP_CHANNEL_ID), adminChat: Boolean(env.TELEGRAM_ADMIN_CHAT_ID), support: Boolean(env.SUPPORT_USERNAME || env.SUPPORT_URL), ownPassword: Boolean(process.env.ADMIN_PASSWORD?.trim()), autoApprove: env.PLAYBOOK_AUTO_APPROVE },
       };
     }
+    case "purge_now":
+      await loadSettings(true);
+      return { purged: (await purgeOldData()) ?? bad("Temizlik fonksiyonu bulunamadı. Supabase'de supabase/support_and_cleanup.sql dosyasını çalıştırın.") };
     case "register_webhook":
       return { webhook: await registerWebhook() };
 

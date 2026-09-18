@@ -210,10 +210,11 @@ function Overview({ go }: { go: (tab: string) => void }) {
           <Btn key={v} small kind={days === v ? undefined : "soft"} onClick={() => setDays(Number(v))}>{l}</Btn>
         ))}
       </div>
-      {d && (d.alerts.needsHuman > 0 || d.alerts.unlinked > 0 || d.alerts.proposals > 0) && (
+      {d && (d.alerts.needsHuman > 0 || d.alerts.unlinked > 0 || d.alerts.proposals > 0 || d.alerts.tickets > 0) && (
         <div className="a-warn">
           <b>Sizi bekleyen işler:</b>
           <div className="a-row" style={{ marginTop: 8 }}>
+            {d.alerts.tickets > 0 && <Pill tone="amber">{d.alerts.tickets} destek talebi açık — Telegram'da bottan gelen mesajdaki “Reply” düğmesiyle cevaplayın</Pill>}
             {d.alerts.needsHuman > 0 && <Btn small kind="ghost" onClick={() => go("konusmalar")}>{d.alerts.needsHuman} kişi insan desteği istiyor</Btn>}
             {d.alerts.unlinked > 0 && <Btn small kind="ghost" onClick={() => go("odemeler")}>{d.alerts.unlinked} ödeme kişiye bağlanamadı</Btn>}
             {d.alerts.proposals > 0 && <Btn small kind="ghost" onClick={() => go("ogrenme")}>{d.alerts.proposals} yeni satış önerisi onayınızı bekliyor</Btn>}
@@ -329,7 +330,7 @@ function LeadDetail({ id, back, changed }: { id: string; back: () => void; chang
               {m.role !== "event" && <small>{m.role === "user" ? "Müşteri" : "Bot"} · {when(m.created_at)}</small>}
             </div>
           ))}
-          {!d.messages.length && <p className="a-help">Henüz mesaj yok.</p>}
+          {!d.messages.length && <p className="a-help">Mesaj yok. (Eski mesaj metinleri yer açmak için otomatik silinir; analiz, puan ve profil kalır.)</p>}
         </div>
       </Card>
 
@@ -611,6 +612,30 @@ function TestChat() {
   );
 }
 
+function Knowledge({ initial }: { initial: Any[] }) {
+  const [kb, setKb] = useState<Any[]>(initial);
+  const [busy, run] = useBusy();
+  const dirty = JSON.stringify(kb) !== JSON.stringify(initial);
+  return (
+    <Card title={`Botun bildiği sorunlar ve çözümleri (${kb.length})`} desc="Teknik bir sorunu Telegram'da çözdükten sonra “🧠 Teach the AI” düğmesiyle öğrettiğiniz her şey buraya düşer; buradan da elle ekleyebilirsiniz. Bot aynı sorunu bir daha duyduğunda bu çözümü kendi cümleleriyle anlatır; çözemezse yine size devreder. Metinler Portekizce olmalı (Telegram'dan öğrettiğinizde otomatik çevrilir). Bot link gönderemez; “whop.com” gibi adresleri http olmadan yazın.">
+      {kb.map((k, i) => (
+        <div key={k.id ?? i} style={{ borderTop: "1px solid #eef2f0", padding: "12px 0" }}>
+          <div className="a-grid2">
+            <Field label="Sorun (müşteri nasıl anlatır?)"><Txt rows={3} value={k.issue} onChange={(v) => setKb(setIn(kb, [i, "issue"], v))} /></Field>
+            <Field label="Çözüm (bot ne desin?)"><Txt rows={3} value={k.solution} onChange={(v) => setKb(setIn(kb, [i, "solution"], v))} /></Field>
+          </div>
+          <div className="a-row"><Btn small kind="danger" onClick={() => setKb(kb.filter((_, j) => j !== i))}>Sil</Btn>{k.ticket_id && <span className="a-help">Destek talebi #{k.ticket_id} · {when(k.created_at)}</span>}</div>
+        </div>
+      ))}
+      {!kb.length && <p className="a-help">Henüz kayıt yok. İlk teknik sorunu çözdüğünüzde Telegram'daki “🧠 Teach the AI” düğmesini kullanın.</p>}
+      <div className="a-row" style={{ marginTop: 10 }}>
+        <Btn small kind="soft" onClick={() => setKb([...kb, { id: `m${Date.now()}`, issue: "", solution: "" }])}>+ Elle ekle</Btn>
+        <Btn onClick={() => run("kb", async () => setKb((await api("kb_save", { entries: kb })).knowledge), "Kaydedildi. Bot yaklaşık 30 saniye içinde kullanmaya başlar.")} busy={busy === "kb"} disabled={!dirty}>Bilgileri kaydet</Btn>
+      </div>
+    </Card>
+  );
+}
+
 function Assistant() {
   const { s, draft: p, upd, save, reset, busy, dirty } = useSection("prompts");
   const [showFull, setShowFull] = useState(false);
@@ -637,6 +662,7 @@ function Assistant() {
       </Card>
       <SaveBar onSave={save} onReset={reset} busy={busy} dirty={dirty} />
       <div style={{ height: 16 }} />
+      <Knowledge initial={s.knowledge ?? []} />
       <TestChat />
     </>
   );
@@ -657,6 +683,9 @@ const RULE_TR: Record<string, [string, string]> = {
   historyMessages: ["Bot her cevapta son kaç mesajı okusun", "Fazlası daha pahalı, azı daha unutkan."],
   maxPerLeadTotal: ["Bir kişiye en fazla kaç takip mesajı", ""], maxSinceLastReply: ["Cevap gelmeden art arda en fazla kaç takip mesajı", ""],
   sendFromHour: ["Takip mesajı başlangıç saati (Brezilya saati)", ""], sendUntilHour: ["Takip mesajı bitiş saati (Brezilya saati)", ""], maxPerRun: ["Tek çalışmada en fazla kaç mesaj gönderilsin", ""],
+  messageDays: ["Konuşma metinleri kaç gün saklansın", "Bu süreden eski ve analizi bitmiş mesaj METİNLERİ silinir. Analiz sonuçları, puanlarınız, profil, ödeme ve huni sayıları silinmez."],
+  eventDays: ["Teknik kayıtlar kaç gün saklansın", "Olay kayıtları, Whop / Telegram ham verileri, eski ödeme bağlantıları."],
+  autoReleaseHours: ["Destek talebi kaç saat sahipsiz kalırsa bot devralsın", "Siz uyurken müşteri sessizlikte kalmasın diye. Talebe cevap yazarsanız yeniden açılır."],
   coachBatchSize: ["Kaç analiz birikince koç yeni öneri hazırlasın", "Az = sık ama zayıf kanıtlı öneriler."], defaultMinSamplePerVariant: ["A/B testinde varyant başına en az kişi", "Kazanan ilan etmek için gereken en küçük örnek."],
 };
 const FOLLOWUP_TR: Record<string, string> = { checkout_1: "Ödeme yarıda kaldı — 1. hatırlatma", checkout_2: "Ödeme yarıda kaldı — 2. ve son hatırlatma", offer_1: "VIP teklifinden sonra sustu — 1", offer_2: "VIP teklifinden sonra sustu — 2 (son)", free_1: "Kanala davet edildi, girmedi — 1", free_2: "Kanala davet edildi, girmedi — 2 (son)", engaged_1: "Kanalda ama sessiz — 1", engaged_2: "Kanalda ama sessiz — 2", discovery_1: "En başta sustu" };
@@ -705,6 +734,8 @@ function Rules() {
         </div>
       </Card>
       {group("learning", "Öğrenme ayarları", "Koçun ve A/B testlerinin ne kadar veriyle karar vereceği.")}
+      {group("support", "Destek talepleri", "Müşteri ekran görüntüsü gönderdiğinde veya insan istediğinde talep açılır ve o kişi için yapay zekâ susar. Siz Telegram'dan cevap verirsiniz; “Solved” deyince bot devam eder.")}
+      {group("retention", "Veri saklama (ücretsiz Supabase = 500 MB)", "Temizlik her gün, konuşmalar analiz edildikten SONRA çalışır. Öğrenilen her şey (rehberler, analizler, puanlarınız, bot bilgisi, ayarlar) kalıcıdır.")}
       <SaveBar onSave={save} onReset={reset} busy={busy} dirty={dirty} />
     </>
   );
@@ -743,7 +774,7 @@ function Learning() {
       <h1>Öğrenme</h1>
       <p className="a-intro">Bot kendi kendine satış davranışını DEĞİŞTİRMEZ. Döngü şöyle: konuşma biter → yapay zekâ analiz eder → {d.needed} analiz birikince “koç” yeni bir satış rehberi (playbook) ÖNERİR → siz okuyup onaylarsınız → ancak o zaman yayına girer.</p>
 
-      <Card title="Durum" right={<Btn onClick={() => run("learn", async () => { const r = await api("run_learning", { force }); notify(`Tamamlandı.\nSessiz diye kapatılan: ${r.closedAsSilent}\nAnaliz edilen konuşma: ${r.analyzed}\nKoç: ${COACH_TR[r.coach.status] ?? r.coach.status}`); await load(); })} busy={busy === "learn"}>Öğrenme turunu şimdi çalıştır</Btn>}>
+      <Card title="Durum" right={<Btn onClick={() => run("learn", async () => { const r = await api("run_learning", { force }); notify(`Tamamlandı.\nSessiz diye kapatılan: ${r.closedAsSilent}\nAnaliz edilen konuşma: ${r.analyzed}\nKoç: ${COACH_TR[r.coach.status] ?? r.coach.status}${r.purged ? `\nTemizlik: ${r.purged.messages} eski mesaj silindi` : ""}`); await load(); })} busy={busy === "learn"}>Öğrenme turunu şimdi çalıştır</Btn>}>
         <p>Koç için biriken analiz: <b>{d.pending} / {d.needed}</b> · Henüz kullanılmamış puanınız: <b>{d.freshReviews}</b> · Yayındaki rehber: <b>v{d.active.version}</b></p>
         <div className="a-bar" style={{ margin: "10px 0" }}><i style={{ width: `${Math.min(100, (d.pending / d.needed) * 100)}%` }} /></div>
         <label className="a-row"><input type="checkbox" style={{ width: 20 }} checked={force} onChange={(e) => setForce(e.target.checked)} /> Yeterli analiz birikmese de koçu şimdi çalıştır (kanıt zayıf olabilir)</label>
@@ -918,6 +949,16 @@ function System() {
         {ok(d.flags.ownPassword, "Panel için ayrı şifre (ADMIN_PASSWORD) tanımlı.", "Panel şu an SETUP_SECRET ile açılıyor. Vercel'e ADMIN_PASSWORD ekleyip yeniden yayınlarsanız ayrı bir şifreniz olur.")}
         {ok(!d.flags.autoApprove, "Öneriler sizin onayınızı bekliyor (önerilen ayar).", "DİKKAT: PLAYBOOK_AUTO_APPROVE=true — koçun önerileri onaysız yayına giriyor.")}
         <p className="a-help">Yapay zekâ modeli: {d.model} · Adres: {d.appUrl} · Bekleyen Telegram mesajı: {d.webhook?.pending_update_count ?? "?"}</p>
+      </Card>
+      <Card title="Veritabanı kullanımı" desc="Ücretsiz Supabase planı 500 MB verir. Eski mesaj metinleri ve ham kayıtlar her gün otomatik silinir (süreyi “Kurallar ve Puanlama → Veri saklama” bölümünden ayarlarsınız).">
+        {d.usage ? (
+          <>
+            <p><b>{(d.usage.bytes / 1048576).toFixed(1)} MB</b> / 500 MB</p>
+            <div className="a-bar" style={{ margin: "8px 0 12px" }}><i style={{ width: `${Math.min(100, (d.usage.bytes / (500 * 1048576)) * 100)}%`, background: d.usage.bytes > 400 * 1048576 ? "#b3261e" : undefined }} /></div>
+            {d.usage.tables.map((t: Any) => <p key={t.name} className="a-help">{t.name}: {(t.bytes / 1048576).toFixed(2)} MB · ~{t.rows} satır</p>)}
+          </>
+        ) : <p className="a-help">⚠️ Ölçülemedi: Supabase'de supabase/support_and_cleanup.sql dosyasını çalıştırın.</p>}
+        <div style={{ marginTop: 10 }}><Btn kind="ghost" onClick={() => run("purge", async () => { const r = await api("purge_now"); notify(`Silinen — mesaj: ${r.purged.messages} · olay kaydı: ${r.purged.events} · webhook: ${r.purged.webhooks} · ödeme bağlantısı: ${r.purged.checkouts}`); await load(); })} busy={busy === "purge"}>Eski verileri şimdi temizle</Btn></div>
       </Card>
       <Card title="Elle çalıştır">
         <div className="a-row">

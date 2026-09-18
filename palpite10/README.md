@@ -92,6 +92,21 @@ How it works: `src/config/*` are the defaults; whatever you save in the panel is
 
 Files: `app/admin/page.tsx` (UI), `app/api/admin/route.ts` (API + login), `src/lib/settings.ts` (settings layer).
 
+## Support tickets, audio, screenshots (Telegram, owner side in English)
+
+One-time setup: run `supabase/support_and_cleanup.sql` in the Supabase SQL Editor.
+
+- **Audio / voice / video note** → the bot answers "não consigo ouvir áudio… manda por texto".
+- **Screenshot (photo or image file)** → the bot tells the customer it was passed to the team, copies the image to `TELEGRAM_ADMIN_CHAT_ID` with buttons, and the AI goes quiet for that person. The same happens when the AI decides a human is needed.
+- **✍️ Reply** (or just reply to the message in Telegram) → write in any language; the customer receives it in Brazilian Portuguese and you see what was sent. Start with `!` to send your text untouched.
+- The customer's answers come back to you with an English translation and "Solved?".
+- **✅ Solved** → the AI takes over again. A ticket untouched for 12 h is released automatically (configurable in the panel) so nobody is left waiting while you sleep; replying to it re-opens it.
+- **🧠 Teach the AI** → describe issue + solution in any language; it becomes a knowledge entry injected into the sales prompt, so the bot solves that case alone next time. Manage entries in `/admin` → Satış Asistanı.
+
+## Data retention (free Supabase = 500 MB)
+
+Every day, after conversations were analysed, `purge_old_data()` deletes chat texts older than 30 days (only for analysed conversations), raw event logs, webhook payloads and old checkout links. Kept forever: leads, scores, profiles, payments, analyses, your ratings, playbooks, learning rounds, experiments, bot knowledge, settings. Days are editable in the panel; usage and a "clean now" button are in `/admin` → Sistem.
+
 ## Admin commands (from `TELEGRAM_ADMIN_CHAT_ID`)
 
 `/stats [days]` `/funnel` `/campaigns [days]` `/objections [days]` · `/playbook [N]` `/proposals` (or `/playbooks`) `/approve N` `/reject N` · `/experiments` `/activate N` `/stopexp N` · `/learn` `/followups` · `/say <telegram_id> <text>` `/done <telegram_id>` `/link <payment_id> <telegram_id>` · `/help`

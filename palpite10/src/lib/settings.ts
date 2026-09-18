@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BUSINESS } from "../config/business";
-import { FOLLOWUPS, FOLLOWUP_RULES, FUNNEL, LEARNING, SIGNALS } from "../config/funnel";
-import { lockedPromptPart, PROMPT_BLOCKS, salesAgentStaticPrompt, STAGE_INSTRUCTIONS, type PromptBlockKey } from "../config/prompts";
+import { FOLLOWUPS, FOLLOWUP_RULES, FUNNEL, LEARNING, RETENTION, SIGNALS, SUPPORT } from "../config/funnel";
+import { lockedPromptPart, PROMPT_BLOCKS, salesAgentStaticPrompt, STAGE_INSTRUCTIONS, SUPPORT_KB, type KnowledgeEntry, type PromptBlockKey } from "../config/prompts";
 import { findForbiddenClaims } from "../sales/guardrails";
 import { db } from "./supabase";
 
@@ -37,6 +37,8 @@ export const RULE_SPECS = {
   },
   followups: { maxPerLeadTotal: [0, 12], maxSinceLastReply: [0, 4], sendFromHour: [0, 23], sendUntilHour: [1, 24], maxPerRun: [1, 200] },
   learning: { coachBatchSize: [3, 100], defaultMinSamplePerVariant: [10, 1000] },
+  retention: { messageDays: [7, 365], eventDays: [7, 365] },
+  support: { autoReleaseHours: [1, 72] },
 } as const satisfies Dict<Dict<readonly [number, number]>>;
 
 type RuleGroup = keyof typeof RULE_SPECS;
@@ -44,6 +46,8 @@ const RULE_TARGETS: Record<RuleGroup, Dict<number>> = {
   funnel: FUNNEL as unknown as Dict<number>,
   followups: FOLLOWUPS as unknown as Dict<number>,
   learning: LEARNING as unknown as Dict<number>,
+  retention: RETENTION as unknown as Dict<number>,
+  support: SUPPORT as unknown as Dict<number>,
 };
 const signalRows = SIGNALS as unknown as { key: string; weight: number; source: string; description: string }[];
 const allFollowupRules = () => Object.values(FOLLOWUP_RULES).flat();
@@ -123,7 +127,7 @@ const D = {
 export type StoredSettings = {
   business?: unknown;
   prompts?: { blocks?: Dict<string>; stages?: Dict<string> };
-  rules?: { funnel?: Dict<number>; followups?: Dict<number>; learning?: Dict<number>; weights?: Dict<number>; followupRules?: Dict<{ afterSilentHours: number; goal: string; fallback: string }> };
+  rules?: { funnel?: Dict<number>; followups?: Dict<number>; learning?: Dict<number>; retention?: Dict<number>; support?: Dict<number>; weights?: Dict<number>; followupRules?: Dict<{ afterSilentHours: number; goal: string; fallback: string }> };
 };
 export type SettingsSection = keyof StoredSettings;
 
@@ -173,6 +177,17 @@ function applyStored(s: StoredSettings): void {
 /* ------------------------------------------------------------------ */
 
 const TTL_MS = 20_000;
+const KB_KEY = "support_kb";
+
+function applyKnowledge(list: unknown): void {
+  SUPPORT_KB.length = 0;
+  if (!Array.isArray(list)) return;
+  for (const e of list.slice(-SUPPORT.maxKnowledgeEntries) as Dict[]) {
+    const issue = text(e?.issue, 300);
+    const solution = text(e?.solution, 700);
+    if (issue && solution) SUPPORT_KB.push({ id: String(e.id ?? SUPPORT_KB.length), issue: issue.trim(), solution: solution.trim(), created_at: typeof e.created_at === "string" ? e.created_at : undefined, ticket_id: typeof e.ticket_id === "number" ? e.ticket_id : undefined });
+  }
+}
 let loadedAt = 0;
 
 async function readStored(): Promise<StoredSettings> {
@@ -185,7 +200,10 @@ async function readStored(): Promise<StoredSettings> {
 export async function loadSettings(force = false): Promise<void> {
   if (!force && Date.now() - loadedAt < TTL_MS) return;
   try {
-    applyStored(await readStored());
+    const { data, error } = await db().from("app_state").select("key, value").in("key", ["settings", KB_KEY]);
+    if (error) throw new Error(error.message);
+    applyStored((data?.find((r) => r.key === "settings")?.value ?? {}) as StoredSettings);
+    applyKnowledge(data?.find((r) => r.key === KB_KEY)?.value);
     loadedAt = Date.now();
   } catch (error) {
     console.error("[settings] could not load, keeping current values:", (error as Error).message);
@@ -246,7 +264,7 @@ export function validateSection(section: SettingsSection, value: unknown): unkno
   }
   // rules
   const v = (value ?? {}) as NonNullable<StoredSettings["rules"]>;
-  const out: NonNullable<StoredSettings["rules"]> = { funnel: {}, followups: {}, learning: {}, weights: {}, followupRules: {} };
+  const out: NonNullable<StoredSettings["rules"]> = { funnel: {}, followups: {}, learning: {}, retention: {}, support: {}, weights: {}, followupRules: {} };
   for (const g of Object.keys(RULE_SPECS) as RuleGroup[]) {
     for (const [k, range] of Object.entries(RULE_SPECS[g])) out[g]![k] = num(v[g]?.[k], range) ?? D.rules[g][k]!;
   }
@@ -302,7 +320,37 @@ export function settingsView() {
     specs: RULE_SPECS,
     signals: signalRows.map((s) => ({ key: s.key, source: s.source, description: s.description })),
     followupBuckets: Object.fromEntries(Object.entries(FOLLOWUP_RULES).map(([bucket, rules]) => [bucket, rules.map((r) => ({ key: r.key, keyboard: r.keyboard }))])),
+    knowledge: SUPPORT_KB.map((k) => ({ ...k })),
     lockedPrompt: lockedPromptPart(),
     fullPrompt: salesAgentStaticPrompt(),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/*  Bot knowledge: issue → solution pairs taught by the owner          */
+/* ------------------------------------------------------------------ */
+
+/** Full replace (admin panel). Entries with an empty issue or solution are dropped. */
+export async function saveKnowledge(entries: unknown): Promise<void> {
+  const clean: KnowledgeEntry[] = [];
+  for (const e of (Array.isArray(entries) ? entries : []) as Dict[]) {
+    const issue = text(e?.issue, 300)?.trim();
+    const solution = text(e?.solution, 700)?.trim();
+    if (!issue || !solution) continue;
+    clean.push({ id: String(e.id ?? `k${Date.now()}${clean.length}`), issue, solution, created_at: typeof e.created_at === "string" ? e.created_at : new Date().toISOString(), ...(typeof e.ticket_id === "number" ? { ticket_id: e.ticket_id } : {}) });
+  }
+  if (clean.length > SUPPORT.maxKnowledgeEntries) throw new SettingsError([`En fazla ${SUPPORT.maxKnowledgeEntries} kayıt tutulabilir (bot her cevapta hepsini okur). Eskileri silin.`]);
+  const problems = forbiddenIn(clean.map((k) => k.solution));
+  if (problems.length) throw new SettingsError(problems);
+  const { error } = await db().from("app_state").upsert({ key: KB_KEY, value: clean, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  if (error) throw new Error(error.message);
+  applyKnowledge(clean);
+}
+
+/** Append one entry (Telegram → "Teach the AI"). The oldest entry makes room when the list is full. */
+export async function addKnowledge(entry: { issue: string; solution: string; ticket_id?: number }): Promise<void> {
+  const { data, error } = await db().from("app_state").select("value").eq("key", KB_KEY).maybeSingle();
+  if (error) throw new Error(error.message);
+  const current = (Array.isArray(data?.value) ? data.value : []) as Dict[];
+  await saveKnowledge([...current, { ...entry, id: `k${Date.now()}`, created_at: new Date().toISOString() }].slice(-SUPPORT.maxKnowledgeEntries));
 }

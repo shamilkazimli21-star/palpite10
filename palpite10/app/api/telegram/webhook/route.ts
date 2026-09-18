@@ -11,13 +11,18 @@ import { safeEqual } from "@/src/lib/util";
 import { handleAdminCommand } from "@/src/sales/admin-commands";
 import { handleFreeChannelJoined, handleOptOut, handlePlansCommand, handleStart, handleUserMessage, sendToLead, type TelegramUser } from "@/src/sales/engine";
 import { isOptOut, TECHNICAL_FALLBACK_REPLY } from "@/src/sales/guardrails";
+import { handleAdminCallback, handleAdminReply, handleCustomerImage, routeToOpenTicket } from "@/src/sales/support";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 type Chat = { id: number; type: string; username?: string };
-type Message = { message_id: number; from?: TelegramUser & { is_bot?: boolean }; chat: Chat; text?: string };
+type Message = {
+  message_id: number; from?: TelegramUser & { is_bot?: boolean }; chat: Chat; text?: string; caption?: string;
+  photo?: unknown[]; document?: { mime_type?: string }; voice?: unknown; audio?: unknown; video_note?: unknown;
+  reply_to_message?: { message_id: number };
+};
 type MemberUpdate = { chat: Chat; from: TelegramUser; old_chat_member: ChatMember; new_chat_member: ChatMember & { user: TelegramUser & { is_bot?: boolean } } };
 type Update = {
   update_id: number;
@@ -66,6 +71,12 @@ async function onBotBlockedOrUnblocked(u: MemberUpdate): Promise<void> {
 }
 
 async function onCallback(q: NonNullable<Update["callback_query"]>, replied: () => Promise<void>): Promise<void> {
+  if (q.data?.startsWith("tk:")) {
+    // Support-ticket buttons only exist in the owner's chat.
+    if (!q.message || !isAdminChat(q.message.chat.id)) return answerCallback(q.id);
+    await replied();
+    return handleAdminCallback(q);
+  }
   if (q.data !== "check_free") return answerCallback(q.id);
   const lead = await getLeadByTelegramId(q.from.id);
   if (!lead) return answerCallback(q.id, "Envie /start para começar 🙂", true);
@@ -95,9 +106,24 @@ async function onMessage(m: Message, replied: () => Promise<void>): Promise<void
   const from = m.from;
   if (!(await allowRequest(`tg:${from.id}`, 20, 60))) return; // flood: ignore silently
 
+  // The owner answered a support ticket with Telegram's "reply" → goes to the customer (or becomes bot knowledge).
+  if (isAdminChat(m.chat.id) && m.reply_to_message && (await handleAdminReply(m))) return replied();
+
   const text = m.text?.trim();
   if (!text) {
-    await sendText(m.chat.id, "Por enquanto eu só consigo ler mensagens de texto 🙂 Me escreve aqui que eu te respondo.");
+    const isAudio = Boolean(m.voice || m.audio || m.video_note);
+    const isImage = Boolean(m.photo?.length || m.document?.mime_type?.startsWith("image/"));
+    const lead = isAudio || isImage ? await getLeadByTelegramId(from.id) : null;
+    if (lead && isAudio) {
+      await sendToLead(lead, "Não consigo ouvir áudio por aqui agora 🙏 Pode me mandar por texto? Aí te respondo na hora.", { store: false });
+      await recordMessage(lead.id, "event", "A pessoa enviou um áudio. O assistente não ouve áudio e pediu para ela escrever em texto.");
+    } else if (lead && isImage) {
+      await withLeadLock(lead.id, async () => handleCustomerImage((await getLeadById(lead.id)) ?? lead, m));
+    } else if ((isAudio || isImage) && !lead) {
+      return handleStart(from, m.chat.id, null, replied);
+    } else {
+      await sendText(m.chat.id, "Por enquanto eu só consigo ler mensagens de texto 🙂 Me escreve aqui que eu te respondo.");
+    }
     return replied();
   }
 
@@ -134,7 +160,12 @@ async function onMessage(m: Message, replied: () => Promise<void>): Promise<void
     } else if (command) {
       await sendToLead(lead, "Comandos: /planos (ver o VIP) · /canal (canal gratuito) · /parar (não receber mais mensagens). Ou só me escreve normalmente 🙂", { store: false });
     } else {
-      await handleUserMessage(lead, text, m.message_id, replied);
+      // A human is handling this person (screenshot / asked for a human): pass the text on, keep the AI quiet.
+      if (lead.needs_human && (await routeToOpenTicket(lead, text, m.message_id))) {
+        await replied();
+        return;
+      }
+      await handleUserMessage((await getLeadById(lead.id)) ?? lead, text, m.message_id, replied);
       return;
     }
     await replied();

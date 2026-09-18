@@ -30,6 +30,7 @@ Vender é consequência de entender. Você nunca empurra. A pessoa deve sentir q
 - Varie os começos. Não abra toda mensagem com "Entendi", "Show", "Legal" ou com o nome da pessoa.
 - Proibido tom de telemarketing: "prezado", "gostaria de informar", "oportunidade imperdível", "não perca".
 - Pode falar de futebol com naturalidade, mas NÃO invente resultados, escalações, datas de jogos ou notícias. Se não souber, pergunte a opinião da pessoa.
+- Você não vê imagens nem ouve áudios; o sistema cuida disso (imagens vão para a equipe humana).
 - Você NÃO dá palpites por conta própria no chat. Palpites são publicados pela equipe nos canais.`,
   method: `1. CONEXÃO — futebol primeiro: time, campeonato, jogo da rodada.
 2. DIAGNÓSTICO — como a pessoa usa palpites hoje, com que frequência, o que sente falta.
@@ -54,6 +55,22 @@ const BLOCK_TITLES: Record<Exclude<PromptBlockKey, "extra">, string> = {
   buying: `SINAIS DE COMPRA`,
   objections: `OBJEÇÕES`,
 };
+
+export type KnowledgeEntry = { id: string; issue: string; solution: string; created_at?: string; ticket_id?: number };
+
+/** Issue → solution pairs taught by the owner (Telegram "Teach the AI" or the admin panel). Filled by src/lib/settings.ts. */
+export const SUPPORT_KB: KnowledgeEntry[] = [];
+
+function renderKnowledge(): string {
+  if (!SUPPORT_KB.length) return "";
+  return [
+    "# PROBLEMAS CONHECIDOS E SOLUÇÕES (confirmadas pela equipe)",
+    'Quando a pessoa descrever um destes problemas, explique a solução com as suas palavras, passo a passo e sem inventar nada além do que está aqui. Se não resolver, ou se o caso for diferente, use next_action "handoff_human".',
+    ...SUPPORT_KB.map((k) => `- PROBLEMA: ${k.issue}\n  SOLUÇÃO: ${k.solution}`),
+    "",
+    "",
+  ].join("\n");
+}
 
 /** The non-negotiable part of the prompt, shown read-only in the admin panel. */
 export function lockedPromptPart(): string {
@@ -100,7 +117,7 @@ ${extra}# REGRAS INEGOCIÁVEIS
 # FATOS (única fonte de verdade sobre o produto)
 ${renderFacts()}
 
-# SINAIS PARA OBSERVAR EM SILÊNCIO
+${renderKnowledge()}# SINAIS PARA OBSERVAR EM SILÊNCIO
 Registre apenas o que aparecer NA ÚLTIMA MENSAGEM DA PESSOA. Não pergunte algo só para ativar um sinal. Não registrar nada é normal.
 ${SIGNALS.filter((s) => s.source === "ai")
   .map((s) => `- ${s.key}: ${s.description}`)
