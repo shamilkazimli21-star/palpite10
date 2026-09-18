@@ -21,7 +21,7 @@ export default function Privacy() {
       <h2>Para que usamos</h2>
       <ul>
         <li>Atender você no Telegram, liberar o acesso aos canais e dar suporte.</li>
-        <li>Medir o resultado dos nossos anúncios (Meta Pixel e API de Conversões). Identificadores são enviados com hash.</li>
+        <li>Medir o resultado dos nossos anúncios e mostrar (ou deixar de mostrar) anúncios para quem já interagiu com a gente, usando o Meta Pixel, a API de Conversões e públicos personalizados da Meta. Identificadores como o e-mail da compra são enviados com hash. Para não ser incluído, escreva PARAR no chat ou peça pelo bot.</li>
         <li>Melhorar o atendimento: conversas são analisadas, inclusive por sistemas de inteligência artificial, para entender dúvidas frequentes.</li>
       </ul>
 

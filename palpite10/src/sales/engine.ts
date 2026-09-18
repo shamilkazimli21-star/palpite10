@@ -159,6 +159,7 @@ export async function runTurn(leadId: string, options: TurnOptions): Promise<voi
   if (output.risk_flag && !lead.do_not_sell) {
     lead = await updateLead(lead.id, { do_not_sell: true, do_not_sell_reason: output.risk_flag });
     await recordEvent(lead.id, "RISK_FLAG", { flag: output.risk_flag });
+    await sendMetaEvent({ ...META_EVENTS.doNotTarget, eventId: `dnt_${lead.id}`, lead });
     await notifyAdmin(`🛑 ${lead.first_name ?? lead.id} flagged "${output.risk_flag}". Selling and follow-ups are now OFF for this person.`);
   }
   if (output.guardrailHits.length) {
@@ -211,6 +212,7 @@ export async function runTurn(leadId: string, options: TurnOptions): Promise<voi
     });
     await applySignals(lead.id, { explicit_no: { value: 1, evidence: (options.userText ?? "").slice(0, 200) } }, "ai");
     await recordEvent(lead.id, "NOT_INTERESTED");
+    await sendMetaEvent({ ...META_EVENTS.notInterested, eventId: `notinterested_${lead.id}`, lead });
   }
   if (action === "handoff_human") {
     const support = supportContact();
@@ -355,6 +357,7 @@ export async function handleFreeChannelJoined(lead: Lead, via: "button" | "auto"
 export async function handleOptOut(lead: Lead): Promise<void> {
   await updateLead(lead.id, { opted_out: true });
   await recordEvent(lead.id, "OPTED_OUT");
+  await sendMetaEvent({ ...META_EVENTS.doNotTarget, eventId: `dnt_${lead.id}`, lead });
   await sendToLead(lead, tx("optOutDone"));
 }
 

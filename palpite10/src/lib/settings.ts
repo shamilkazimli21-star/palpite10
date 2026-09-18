@@ -127,7 +127,7 @@ const D = {
   followupRules: Object.fromEntries(allFollowupRules().map((r) => [r.key, { afterSilentHours: r.afterSilentHours, goal: r.goal, fallback: r.fallback }])),
 };
 
-const EVENT_KEYS = ["ctaClick", "botStarted", "freeJoined", "vipOfferShown", "checkoutStarted", "purchase"] as const;
+const EVENT_KEYS = ["ctaClick", "botStarted", "freeJoined", "vipOfferShown", "checkoutStarted", "purchase", "notInterested", "doNotTarget"] as const;
 type EventKey = (typeof EVENT_KEYS)[number];
 const metaEvents = META_EVENTS as unknown as Record<EventKey, { name: string; actionSource: string; enabled: boolean }> & { sendRenewalsAsPurchase: boolean };
 const D_EVENTS = Object.fromEntries(EVENT_KEYS.map((k) => [k, { name: metaEvents[k].name, enabled: true }])) as Record<EventKey, { name: string; enabled: boolean }>;

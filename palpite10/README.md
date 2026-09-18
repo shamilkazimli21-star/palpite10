@@ -90,6 +90,7 @@ Open `https://YOUR-DOMAIN/admin`. Password = `ADMIN_PASSWORD` (or `SETUP_SECRET`
 | Hazır Mesajlar | Every fixed message and button label the bot sends without the AI (plans text, audio / image replies, payment confirmed, VIP ended, opt-out…) |
 | Açılış Sayfası | All landing-page copy (headline, buttons, steps, disclaimer); live in ≤ 2 minutes |
 | Entegrasyonlar | Meta Pixel ID, Conversions API token (write-only), test-event code, which Meta event fires at each funnel step (rename / switch off), support username, channel links, AI model; "test connection" button |
+| Hedef Kitleler | Retargeting without asking for e-mails: recipes for event-based Meta audiences (built from the events the bot already sends, incl. the protective `DoNotTarget` / `NotInterested` events) + CSV customer-list downloads for buyers (their e-mail comes from Whop) |
 | Veri Yönetimi | Database usage and bulk deletes (never-started visitors, lost leads, old chat texts, logs, closed tickets, used analyses). A single message, a person's whole chat, a reset ("start over") or a full delete of one person are in Konuşmalar → the person → Silme işlemleri |
 | Ödemeler | All Whop payments; link an unmatched payment to a Telegram ID (delivers VIP) |
 | Sistem | Health of every integration, re-register the Telegram webhook, send due follow-ups now, failed webhooks |

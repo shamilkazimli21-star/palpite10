@@ -283,6 +283,10 @@ export const META_EVENTS = {
   vipOfferShown: { name: "VipOfferShown", actionSource: "chat", enabled: true },
   checkoutStarted: { name: "InitiateCheckout", actionSource: "website", enabled: true },
   purchase: { name: "Purchase", actionSource: "website", enabled: true },
+  /** Said "no" to the VIP → lets you EXCLUDE these people from VIP retargeting ads. */
+  notInterested: { name: "NotInterested", actionSource: "chat", enabled: true },
+  /** Wrote PARAR, or was flagged (minor / gambling harm), or you switched selling off → exclude from EVERY ad set. The reason is never sent. */
+  doNotTarget: { name: "DoNotTarget", actionSource: "chat", enabled: true },
   /** Subscription renewals are stored as revenue but not sent as Purchase by default. */
   sendRenewalsAsPurchase: false,
 } as const;

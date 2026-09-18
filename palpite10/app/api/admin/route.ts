@@ -8,7 +8,8 @@ import { deepseekJson } from "@/src/lib/deepseek";
 import { getLeadById, getLeadByTelegramId, recordEvent, recordMessage, updateLead, type Lead, type StoredMessage } from "@/src/lib/leads";
 import { allowRequest } from "@/src/lib/rate-limit";
 import { metaConfig } from "@/src/lib/integrations";
-import { lastMetaError, testMetaConnection } from "@/src/lib/meta";
+import { lastMetaError, sendMetaEvent, testMetaConnection } from "@/src/lib/meta";
+import { META_EVENTS } from "@/src/config/funnel";
 import { loadSettings, resetSection, saveKnowledge, saveSection, SettingsError, settingsView, type SettingsSection } from "@/src/lib/settings";
 import { db } from "@/src/lib/supabase";
 import { registerWebhook, sendText, tg } from "@/src/lib/telegram";
@@ -162,7 +163,10 @@ async function handle(action: string, body: any): Promise<unknown> {
         await recordEvent(lead.id, "ADMIN_MESSAGE", { via: "panel" });
       } else if (op === "human_done") await updateLead(lead.id, { needs_human: false });
       else if (op === "human_needed") await updateLead(lead.id, { needs_human: true });
-      else if (op === "sell_off") await updateLead(lead.id, { do_not_sell: true, do_not_sell_reason: "owner" });
+      else if (op === "sell_off") {
+        await updateLead(lead.id, { do_not_sell: true, do_not_sell_reason: "owner" });
+        await sendMetaEvent({ ...META_EVENTS.doNotTarget, eventId: `dnt_${lead.id}`, lead });
+      }
       else if (op === "sell_on") await updateLead(lead.id, { do_not_sell: false, do_not_sell_reason: null });
       else bad("Bilinmeyen işlem.");
       return { ok: true };
@@ -299,6 +303,26 @@ async function handle(action: string, body: any): Promise<unknown> {
       const { error } = await db().from("ad_spend").delete().eq("batch", String(body.batch));
       if (error) throw new Error(error.message);
       return { ok: true };
+    }
+
+    /* ---------------- Meta audiences: customer-list files (only buyers have an e-mail) ---------------- */
+    case "audience_export": {
+      const segment = String(body.segment);
+      const list = await rows(db().from("payments").select("email, amount, status, lead_id, leads(vip_active, opted_out, do_not_sell, refunded)").not("email", "is", null).limit(20000));
+      const people = new Map<string, { value: number; active: boolean; blocked: boolean; known: boolean }>();
+      for (const p of list) {
+        const email = String(p.email).trim().toLowerCase();
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) continue;
+        const person = people.get(email) ?? { value: 0, active: false, blocked: false, known: false };
+        if (p.status !== "refunded") person.value += Number(p.amount ?? 0);
+        if (p.leads) { person.known = true; person.active ||= Boolean(p.leads.vip_active); person.blocked ||= Boolean(p.leads.opted_out || p.leads.do_not_sell); }
+        people.set(email, person);
+      }
+      const chosen = [...people.entries()].filter(([, v]) =>
+        segment === "active" ? v.active : segment === "churned" ? v.known && !v.active && !v.blocked && v.value > 0 : segment === "customers" ? v.value > 0 : bad("Bilinmeyen liste."));
+      const csv = ["email,country,value", ...chosen.map(([email, v]) => `${email},BR,${v.value.toFixed(2)}`)].join("\n");
+      await recordEvent(null, "ADMIN_AUDIENCE_EXPORT", { segment, count: chosen.length });
+      return { csv, count: chosen.length, filename: `palpite10_${segment}_${spDate(new Date())}.csv` };
     }
 
     case "meta_test":

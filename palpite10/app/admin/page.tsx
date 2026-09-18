@@ -1097,6 +1097,8 @@ const EVENT_TR: [string, string, string][] = [
   ["vipOfferShown", "VIP planları ilk kez gösterildi", "Sunucu"],
   ["checkoutStarted", "Whop ödeme sayfasını açtı", "Sunucu (tutar ile)"],
   ["purchase", "İlk ödeme onaylandı", "Sunucu (tutar, para birimi, e-posta özeti ile)"],
+  ["notInterested", "VIP'i istemediğini söyledi", "Sunucu · özel olay — VIP reklamlarından HARİÇ tutmak için"],
+  ["doNotTarget", "“PARAR” yazdı / yaş-risk işareti aldı / satışı siz kapattınız", "Sunucu · özel olay — HER reklam setinden hariç tutun (neden gönderilmez)"],
 ];
 const STANDARD_EVENTS = ["Lead", "CompleteRegistration", "Contact", "ViewContent", "InitiateCheckout", "AddToCart", "AddPaymentInfo", "Purchase", "Subscribe", "StartTrial", "SubmitApplication", "Schedule"];
 
@@ -1478,9 +1480,57 @@ function Analytics() {
 }
 
 /* =====================================================================
+ *  HEDEF KİTLELER  (Meta'da yeniden hedefleme)
+ * ===================================================================== */
+const AUDIENCES: [string, string, string, string][] = [
+  ["Siteye gelip botu başlatmayanlar", "PageView · son 30 gün", "Lead · son 30 gün", "Sayfayı gördü ama Telegram'a geçmedi. Farklı bir reklam metniyle tekrar deneyin."],
+  ["Botu başlatıp ücretsiz kanala girmeyenler", "Lead · son 30 gün", "CompleteRegistration · son 30 gün", "“Ücretsiz kanala girmeyi unuttun” tarzı hatırlatma."],
+  ["Ücretsiz kanalda olup VIP almayanlar", "CompleteRegistration · son 90 gün", "Purchase · son 180 gün  +  NotInterested", "En değerli yeniden hedefleme kitlesi: ürünü tanıyor, henüz almadı."],
+  ["Ödeme sayfasını açıp almayanlar", "InitiateCheckout · son 14 gün", "Purchase · son 180 gün", "Küçük ama en sıcak kitle."],
+  ["Müşteriler", "Purchase · son 180 gün (veya aşağıdaki dosya)", "—", "Yeni müşteri arayan reklamlardan HARİÇ tutun; ayrıca “benzer kitle (lookalike)” kaynağı olarak kullanın."],
+  ["Asla hedeflenmeyecekler", "DoNotTarget · son 180 gün", "—", "Bu kitleyi TÜM reklam setlerinizde “hariç tut” olarak ekleyin: mesaj istemeyenler, reşit olmayanlar, risk işareti alanlar."],
+];
+
+function Audiences() {
+  const [busy, run] = useBusy();
+  const download = (segment: string) => run(segment, async () => {
+    const r = await api("audience_export", { segment });
+    if (!r.count) { notify("Bu listede henüz kimse yok.", true); return; }
+    const url = URL.createObjectURL(new Blob([r.csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a"); a.href = url; a.download = r.filename; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    notify(`${r.count} kişi indirildi: ${r.filename}`);
+  });
+  return (
+    <>
+      <h1>Hedef Kitleler</h1>
+      <p className="a-intro">Meta'da yeniden hedefleme (retargeting) için kitleler. Kısa cevap: <b>çoğu kitle için dosyaya gerek yok.</b> Bot zaten her adımı (PageView, Contact, Lead, CompleteRegistration, InitiateCheckout, Purchase…) reklam tıklama bilgisiyle birlikte Meta'ya gönderiyor; Meta bu olaylardan kitleyi kendisi kurar ve her gün kendisi günceller.</p>
+      <div className="a-info"><b>E-posta konusu:</b> Telegram bize e-posta veya telefon vermez; o yüzden satın ALMAYAN kişiler için yüklenebilir bir dosya oluşturulamaz (Meta dosyada yalnızca e-posta / telefon gibi bilgileri eşleştirir; Telegram ID'si veya bizim iç kimliğimiz dosyada işe yaramaz). Satın ALANLARIN e-postası ise Whop ödemesinden gelir — onlar için aşağıdan dosya indirebilirsiniz. Fazladan bilgi sormaya gerek yok.</div>
+
+      <Card title="1) Olaylardan otomatik kitleler (önerilen)" desc="Ads Manager → Kitleler → Kitle oluştur → Özel kitle → kaynak: Web sitesi → pikselinizi seçin → “Olaylar” listesinden seçin. Lead / CompleteRegistration / NotInterested / DoNotTarget listede görünmüyorsa kaynak olarak “Çevrimdışı etkinlik (Offline activity)” deneyin: bu olaylar sohbetten geldiği için Meta onları orada gösterebilir.">
+        <div className="a-scroll"><table className="a-table" style={{ minWidth: 760 }}><thead><tr><th>Kitle</th><th>Dahil et</th><th>Hariç tut</th><th>Ne için?</th></tr></thead><tbody>
+          {AUDIENCES.map(([name, inc, exc, why]) => <tr key={name}><td><b>{name}</b></td><td>{inc}</td><td>{exc}</td><td className="a-help">{why}</td></tr>)}
+        </tbody></table></div>
+        <p className="a-help" style={{ marginTop: 10 }}>Meta bir kitleyi reklamda kullanabilmek için genelde en az ~100 eşleşen kişi ister; başlangıçta kitleler “çok küçük” görünebilir. Olay adlarını Entegrasyonlar sekmesinde değiştirdiyseniz burada da o adları arayın. Kitlelere nötr adlar verin (ör. “P10 – kanal, VIP yok”).</p>
+      </Card>
+
+      <Card title="2) Müşteri listesi dosyaları (CSV)" desc="Ads Manager → Kitleler → Özel kitle → Müşteri listesi → dosyayı yükleyin; sütunlar otomatik tanınır (email, country, value). “value” sütunu sayesinde değer bazlı benzer kitle oluşturabilirsiniz. Meta e-postaları yüklerken kendi tarafında şifreler (hash).">
+        <div className="a-row">
+          <Btn onClick={() => download("customers")} busy={busy === "customers"}>Tüm müşteriler (benzer kitle + hariç tutma)</Btn>
+          <Btn kind="ghost" onClick={() => download("active")} busy={busy === "active"}>Aktif aboneler (hariç tutma)</Btn>
+          <Btn kind="ghost" onClick={() => download("churned")} busy={busy === "churned"}>Ayrılan müşteriler (geri kazanma)</Btn>
+        </div>
+        <p className="a-help" style={{ marginTop: 10 }}>“Ayrılan müşteriler” listesine mesaj istemeyenler ve satışı kapatılan kişiler ALINMAZ. Panelden tamamen sildiğiniz kişilerin e-postası da silindiği için hiçbir listede çıkmaz. Dosya Excel'de açılır; olduğu gibi yükleyin.</p>
+      </Card>
+
+      <div className="a-warn"><b>Yasal not (LGPD):</b> müşteri e-postalarını reklam için Meta'ya yüklemek kişisel veri paylaşımıdır. Gizlilik sayfanızda bunun yazması ve kişinin itiraz edebilmesi gerekir; emin değilseniz yalnızca 1. bölümdeki olay bazlı kitleleri kullanın. Ayrıca Meta, kumarla ilgili reklamlarda ek kısıtlamalar uygulayabilir; her reklam setini +18 ile sınırlayın ve “Asla hedeflenmeyecekler” kitlesini hariç tutun.</div>
+    </>
+  );
+}
+
+/* =====================================================================
  *  Kabuk: giriş + menü
  * ===================================================================== */
-const TABS: [string, string][] = [["ozet", "📊 Genel Bakış"], ["analiz", "📈 Analiz"], ["konusmalar", "💬 Konuşmalar"], ["destek", "🆘 Destek Talepleri"], ["isletme", "🏷️ İşletme Bilgileri"], ["asistan", "🤖 Satış Asistanı"], ["mesajlar", "✉️ Hazır Mesajlar"], ["kurallar", "⚖️ Kurallar ve Puanlama"], ["ogrenme", "🧠 Öğrenme"], ["sayfa", "🌐 Açılış Sayfası"], ["entegrasyon", "🔌 Entegrasyonlar"], ["odemeler", "💳 Ödemeler"], ["veri", "🗑️ Veri Yönetimi"], ["sistem", "🛠️ Sistem"]];
+const TABS: [string, string][] = [["ozet", "📊 Genel Bakış"], ["analiz", "📈 Analiz"], ["konusmalar", "💬 Konuşmalar"], ["destek", "🆘 Destek Talepleri"], ["isletme", "🏷️ İşletme Bilgileri"], ["asistan", "🤖 Satış Asistanı"], ["mesajlar", "✉️ Hazır Mesajlar"], ["kurallar", "⚖️ Kurallar ve Puanlama"], ["ogrenme", "🧠 Öğrenme"], ["sayfa", "🌐 Açılış Sayfası"], ["entegrasyon", "🔌 Entegrasyonlar"], ["kitleler", "🎯 Hedef Kitleler"], ["odemeler", "💳 Ödemeler"], ["veri", "🗑️ Veri Yönetimi"], ["sistem", "🛠️ Sistem"]];
 
 export default function AdminPage() {
   const [auth, setAuth] = useState<"checking" | "in" | "out">("checking");
@@ -1536,6 +1586,7 @@ export default function AdminPage() {
               {tab === "mesajlar" && <FlatSection section="texts" title="Hazır Mesajlar" groups={TEXT_GROUPS} intro={<>Botun yapay zekâya sormadan, AYNEN gönderdiği sabit mesajlar ve düğme yazıları. Müşteriler Brezilyalı olduğu için <b>Portekizce</b> yazın. Kullanabileceğiniz değişkenler: <code>{"{brand}"}</code> marka, <code>{"{vip}"}</code> VIP adı, <code>{"{age}"}</code> yaş sınırı, <code>{"{frequency}"}</code> ücretsiz kanal sıklığı; belirtilen yerlerde <code>{"{plan}"}</code> ve <code>{"{support}"}</code>. Garanti / sahte aciliyet içeren metinler kaydedilemez.</>} />}
               {tab === "sayfa" && <FlatSection section="landing" title="Açılış Sayfası" groups={LANDING_GROUPS} intro={<>Reklamdan gelenlerin gördüğü sayfanın bütün yazıları (Portekizce). Kaydettikten sonra site en geç 2 dakika içinde güncellenir. Değişkenler: <code>{"{brand}"}</code>, <code>{"{frequency}"}</code>, <code>{"{age}"}</code>. İpucu: aynı anda yalnızca BİR şeyi değiştirin (ör. başlık) ve Genel Bakış'ta “sitede butona basan → botu başlatan” oranını birkaç gün izleyin.</>} after={<div className="a-info">Sayfayı görmek için: <a href="/" target="_blank" rel="noreferrer">siteyi yeni sekmede aç</a>. Sağdaki “kupon” görseli bir illüstrasyondur ve gerçek tahmin içermez.</div>} />}
               {tab === "entegrasyon" && <Integrations />}
+              {tab === "kitleler" && <Audiences />}
               {tab === "veri" && <DataAdmin />}
               {tab === "isletme" && <Business />}
               {tab === "asistan" && <Assistant />}
