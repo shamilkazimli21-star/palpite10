@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { BUSINESS } from "../config/business";
 import { FOLLOWUPS, FOLLOWUP_RULES, FUNNEL, LEARNING, META_EVENTS, RETENTION, SIGNALS, SUPPORT } from "../config/funnel";
-import { LANDING } from "../config/landing";
+import { LANDING, LANDING_OPTIONAL_KEYS } from "../config/landing";
 import { TEXTS } from "../config/texts";
 import { INTEGRATION_OVERRIDES } from "./integrations";
 import { lockedPromptPart, PROMPT_BLOCKS, salesAgentStaticPrompt, STAGE_INSTRUCTIONS, SUPPORT_KB, type KnowledgeEntry, type PromptBlockKey } from "../config/prompts";
@@ -134,7 +134,7 @@ const D_EVENTS = Object.fromEntries(EVENT_KEYS.map((k) => [k, { name: metaEvents
 const D_TEXTS = { ...TEXTS } as Dict<string>;
 const D_LANDING = { ...LANDING } as Dict<string>;
 /** Landing fields that may be left empty (the line simply disappears). */
-const LANDING_OPTIONAL = new Set(["eyebrow", "headlineHighlight", "headline2", "micro"]);
+const LANDING_OPTIONAL = new Set<string>(LANDING_OPTIONAL_KEYS);
 
 export type StoredIntegrations = {
   metaPixelId?: string; metaAccessToken?: string; metaTestEventCode?: string; supportUsername?: string;
